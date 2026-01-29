@@ -26,17 +26,21 @@ target_link_libraries(OmniUtils PUBLIC
     Boost::json
 )
 
+
 if(WIN32)
-    set(OUTPUT_LIB_DIR "${LIBS_DIR}")
+    set_target_properties(OmniUtils PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
+        LIBRARY_OUTPUT_DIRECTORY "${LIBS_DIR}"
+        ARCHIVE_OUTPUT_DIRECTORY "${LIBS_DIR}"
+    )
 else()
-    set(OUTPUT_LIB_DIR "${CMAKE_BINARY_DIR}/OmniUtils")
+    set_target_properties(OmniUtils PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
+    )
 endif()
 
-set_target_properties(OmniUtils PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
-    LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_LIB_DIR}"
-    ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_LIB_DIR}"
-)
 
 if(WIN32)
     get_filename_component(SODIUM_LIB_DIR "${SODIUM_LIB}" DIRECTORY)
