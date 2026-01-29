@@ -26,10 +26,16 @@ target_link_libraries(OmniUtils PUBLIC
     Boost::json
 )
 
+if(WIN32)
+    set(OUTPUT_LIB_DIR "${LIBS_DIR}")
+else()
+    set(OUTPUT_LIB_DIR "${CMAKE_BINARY_DIR}/OmniUtils")
+endif()
+
 set_target_properties(OmniUtils PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
-    LIBRARY_OUTPUT_DIRECTORY "${LIBS_DIR}"
-    ARCHIVE_OUTPUT_DIRECTORY "${LIBS_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_LIB_DIR}"
+    ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_LIB_DIR}"
 )
 
 if(WIN32)
@@ -72,41 +78,6 @@ if(WIN32)
         endforeach()
     endif()
 
-elseif(UNIX)
-    # Sodium
-    if(EXISTS "${SODIUM_LIB}")
-        add_custom_command(TARGET OmniUtils POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SODIUM_LIB}" "${LIBS_DIR}"
-            COMMENT "Copying Sodium Library: ${SODIUM_LIB}"
-        )
-    endif()
-
-    # Boost
-    # Try to get the location from the imported target if possible, or fall back to known variables.
-    if(TARGET Boost::json)
-        get_target_property(BOOST_JSON_LIB Boost::json IMPORTED_LOCATION)
-        if(NOT BOOST_JSON_LIB)
-            get_target_property(BOOST_JSON_LIB Boost::json IMPORTED_LOCATION_RELEASE)
-        endif()
-
-        if(BOOST_JSON_LIB AND EXISTS "${BOOST_JSON_LIB}")
-            add_custom_command(TARGET OmniUtils POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${BOOST_JSON_LIB}" "${LIBS_DIR}"
-                COMMENT "Copying Boost Json Library: ${BOOST_JSON_LIB}"
-            )
-        endif()
-    endif()
-    
-    # Try to find container lib if linked implicitly or via other components
-    # Just generic handling if Boost_LIBRARIES is available
-    foreach(LIB ${Boost_LIBRARIES})
-        if(EXISTS "${LIB}" AND NOT IS_DIRECTORY "${LIB}")
-             add_custom_command(TARGET OmniUtils POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LIB}" "${LIBS_DIR}"
-                COMMENT "Copying Boost Library: ${LIB}"
-            )
-        endif()
-    endforeach()
 endif()
 
 file(GLOB_RECURSE PUBLIC_HEADERS
@@ -115,12 +86,7 @@ file(GLOB_RECURSE PUBLIC_HEADERS
 
 foreach(HDR ${PUBLIC_HEADERS})
     file(RELATIVE_PATH REL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" "${HDR}")
-    set(DEST_PATH "${INCLUDE_DIR}/${REL_PATH}") # Removed /OmniUtils/ prefix based on user request "Include where headers go" - usually better flat or mirroring source depending on need. I'll stick to mirroring source relative path directly into Include for now, or if they want an 'OmniUtils' subdir, I can add it. The original code had /OmniUtils/. The user request says "otra como include donde vayan las cabezzeras". I will assume simpler structure or maybe just keeping the relative path is safest. Let's start with clean mirror. Wait, previous code had /OmniUtils/. Standard practice is Include/OmniUtils/file.hpp so user does #include <OmniUtils/file.hpp>. Let's keep the /OmniUtils/ subfolder structure if it makes sense, but the user just said "Include". I'll default to just putting them in Include, preserving internal folder structure if any.
-    # Actually, looking at the previous code: set(DEST_PATH "${DEST_LIB_DIR}/OmniUtils/${REL_PATH}")
-    # The user request: "Include donde vayan las cabezzeras"
-    # I will put them in Include/OmniUtils to keep namespace clean, it's safer.
-    
-    set(DEST_PATH "${INCLUDE_DIR}/OmniUtils/${REL_PATH}")
+    set(DEST_PATH "${INCLUDE_DIR}/${REL_PATH}")
 
     get_filename_component(DEST_DIR "${DEST_PATH}" DIRECTORY)
     add_custom_command(TARGET OmniUtils POST_BUILD
