@@ -4,8 +4,8 @@ project(OmniUtils LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(LIBS_DIR "${CMAKE_BINARY_DIR}/Libs")
-set(INCLUDE_DIR "${CMAKE_BINARY_DIR}/Include")
+set(LIBS_DIR "${CMAKE_BINARY_DIR}/OmniUtils/Libs")
+set(INCLUDE_DIR "${CMAKE_BINARY_DIR}/OmniUtils/Include")
 
 add_library(OmniUtils SHARED
     Base64.cpp
@@ -27,7 +27,7 @@ target_link_libraries(OmniUtils PUBLIC
 )
 
 set_target_properties(OmniUtils PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${LIBS_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
     LIBRARY_OUTPUT_DIRECTORY "${LIBS_DIR}"
     ARCHIVE_OUTPUT_DIRECTORY "${LIBS_DIR}"
 )
@@ -43,7 +43,7 @@ if(WIN32)
     if(SODIUM_DLL)
         message(STATUS "Found Sodium DLL: ${SODIUM_DLL}")
         add_custom_command(TARGET OmniUtils POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SODIUM_DLL}" "${LIBS_DIR}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SODIUM_DLL}" "${CMAKE_BINARY_DIR}/OmniUtils"
             COMMENT "Copying Sodium DLL..."
         )
     else()
@@ -66,7 +66,7 @@ if(WIN32)
         file(GLOB BOOST_DLLS "${BOOST_BIN_DIR}/*boost_json*.dll" "${BOOST_BIN_DIR}/*boost_container*.dll")
         foreach(DLL ${BOOST_DLLS})
             add_custom_command(TARGET OmniUtils POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLL}" "${LIBS_DIR}"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLL}" "${CMAKE_BINARY_DIR}/OmniUtils"
                 COMMENT "Copying Boost DLL: ${DLL}"
             )
         endforeach()
