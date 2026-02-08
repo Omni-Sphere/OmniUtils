@@ -14,8 +14,9 @@ add_library(OmniUtils SHARED
     Logger.hpp
 )
 
-target_include_directories(OmniUtils
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+target_include_directories(OmniUtils PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include/OmniSphere/OmniUtils>
 )
 
 find_library(SODIUM_LIB sodium REQUIRED)
