@@ -27,17 +27,17 @@ target_link_libraries(OmniUtils PUBLIC
 )
 
 
+# Build output directories
 if(WIN32)
     set_target_properties(OmniUtils PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
+        RUNTIME_OUTPUT_DIRECTORY "${LIBS_DIR}"
         LIBRARY_OUTPUT_DIRECTORY "${LIBS_DIR}"
-        ARCHIVE_OUTPUT_DIRECTORY "${LIBS_DIR}"
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
     )
 else()
     set_target_properties(OmniUtils PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
-        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
-        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
+        LIBRARY_OUTPUT_DIRECTORY "${LIBS_DIR}"
+        ARCHIVE_OUTPUT_DIRECTORY "${LIBS_DIR}"
     )
 endif()
 
@@ -53,7 +53,7 @@ if(WIN32)
     if(SODIUM_DLL)
         message(STATUS "Found Sodium DLL: ${SODIUM_DLL}")
         add_custom_command(TARGET OmniUtils POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SODIUM_DLL}" "${CMAKE_BINARY_DIR}/OmniUtils"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SODIUM_DLL}" "${LIBS_DIR}"
             COMMENT "Copying Sodium DLL..."
         )
     else()
@@ -76,7 +76,7 @@ if(WIN32)
         file(GLOB BOOST_DLLS "${BOOST_BIN_DIR}/*boost_json*.dll" "${BOOST_BIN_DIR}/*boost_container*.dll")
         foreach(DLL ${BOOST_DLLS})
             add_custom_command(TARGET OmniUtils POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLL}" "${CMAKE_BINARY_DIR}/OmniUtils"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLL}" "${LIBS_DIR}"
                 COMMENT "Copying Boost DLL: ${DLL}"
             )
         endforeach()
@@ -88,6 +88,7 @@ file(GLOB_RECURSE PUBLIC_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
 )
 
+# Copy headers to build directory: OmniUtils/Include
 foreach(HDR ${PUBLIC_HEADERS})
     file(RELATIVE_PATH REL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" "${HDR}")
     set(DEST_PATH "${INCLUDE_DIR}/${REL_PATH}")
@@ -98,3 +99,24 @@ foreach(HDR ${PUBLIC_HEADERS})
         COMMAND ${CMAKE_COMMAND} -E copy "${HDR}" "${DEST_PATH}"
     )
 endforeach()
+
+# Installation rules for 'make install'
+# Install library to /usr/local/lib/OmniSphere/
+install(TARGETS OmniUtils
+    LIBRARY DESTINATION lib/OmniSphere
+    ARCHIVE DESTINATION lib/OmniSphere
+    RUNTIME DESTINATION bin
+)
+
+# Install headers to /usr/local/include/OmniUtils/
+foreach(HDR ${PUBLIC_HEADERS})
+    file(RELATIVE_PATH REL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" "${HDR}")
+    get_filename_component(DEST_DIR "${REL_PATH}" DIRECTORY)
+    
+    if(DEST_DIR)
+        install(FILES "${HDR}" DESTINATION "include/OmniUtils/${DEST_DIR}")
+    else()
+        install(FILES "${HDR}" DESTINATION "include/OmniUtils")
+    endif()
+endforeach()
+
