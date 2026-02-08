@@ -103,20 +103,58 @@ endforeach()
 # Installation rules for 'make install'
 # Install library to /usr/local/lib/OmniSphere/
 install(TARGETS OmniUtils
+    EXPORT OmniUtilsTargets
     LIBRARY DESTINATION lib/OmniSphere
     ARCHIVE DESTINATION lib/OmniSphere
     RUNTIME DESTINATION bin
 )
 
-# Install headers to /usr/local/include/OmniUtils/
+# Install headers to /usr/local/include/OmniSphere/OmniUtils/
 foreach(HDR ${PUBLIC_HEADERS})
     file(RELATIVE_PATH REL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" "${HDR}")
     get_filename_component(DEST_DIR "${REL_PATH}" DIRECTORY)
     
     if(DEST_DIR)
-        install(FILES "${HDR}" DESTINATION "include/OmniUtils/${DEST_DIR}")
+        install(FILES "${HDR}" DESTINATION "include/OmniSphere/OmniUtils/${DEST_DIR}")
     else()
-        install(FILES "${HDR}" DESTINATION "include/OmniUtils")
+        install(FILES "${HDR}" DESTINATION "include/OmniSphere/OmniUtils")
     endif()
 endforeach()
 
+# Generate and install CMake package configuration files
+include(CMakePackageConfigHelpers)
+
+# Create the config file
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/OmniUtilsConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/OmniUtilsConfig.cmake"
+    INSTALL_DESTINATION lib/cmake/OmniUtils
+)
+
+# Install the config file
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/OmniUtilsConfig.cmake"
+    DESTINATION lib/cmake/OmniUtils
+)
+
+# Export targets
+install(EXPORT OmniUtilsTargets
+    FILE OmniUtilsTargets.cmake
+    NAMESPACE OmniUtils::
+    DESTINATION lib/cmake/OmniUtils
+)
+
+# Add export to the build tree
+export(TARGETS OmniUtils
+    FILE "${CMAKE_CURRENT_BINARY_DIR}/OmniUtilsTargets.cmake"
+    NAMESPACE OmniUtils::
+)
+
+# Automatic ldconfig configuration for Linux (only when installing to system)
+if(UNIX AND NOT APPLE)
+    install(CODE "
+        file(WRITE \"/etc/ld.so.conf.d/omnisphere.conf\" \"/usr/local/lib/OmniSphere\\n\")
+        execute_process(COMMAND ldconfig)
+        message(STATUS \"Configured ldconfig for OmniSphere libraries\")
+    ")
+endif()
