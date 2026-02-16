@@ -1,107 +1,127 @@
 #include "JWT.hpp"
 #include "Base64.hpp"
-#include <sodium.h>
+#include <boost/json.hpp>
+#include <ctime>
 #include <iostream>
+#include <sodium.h>
 #include <sstream>
 #include <stdexcept>
-#include <boost/json.hpp>
 
-PayloadModel JWT::ValidateToken(const std::string &token)
-{
-    try
-    {
-        std::cout << "Token recibido Longitud (" << token.size() << "): '" << token << "'\n";
+boost::json::object JWT::ValidateToken(const std::string &token) {
+  try {
+    // 1. Format Validation
+    size_t pos1 = token.find('.');
+    size_t pos2 = token.rfind('.');
 
-        size_t pos1 = token.find('.');
-        size_t pos2 = token.rfind('.');
+    if (pos1 == std::string::npos || pos2 == std::string::npos || pos1 == pos2)
+      throw std::runtime_error(
+          "Invalid token format: expected header.payload.signature");
 
-        if (pos1 == std::string::npos || pos2 == std::string::npos || pos1 == pos2)
-            throw std::runtime_error("Invalid token format");
+    std::string header_b64 = token.substr(0, pos1);
+    std::string payload_b64 = token.substr(pos1 + 1, pos2 - pos1 - 1);
+    std::string signature_b64 = token.substr(pos2 + 1);
 
-        std::string header_b64 = token.substr(0, pos1);
-        std::string payload_b64 = token.substr(pos1 + 1, pos2 - pos1 - 1);
-        std::string signature_b64 = token.substr(pos2 + 1);
+    std::string header_json = Base64::DecodeUrl(header_b64);
+    std::string payload_json = Base64::DecodeUrl(payload_b64);
+    std::string signature = Base64::DecodeUrl(signature_b64);
 
-        std::string header_json = Base64::DecodeUrl(header_b64);
-        std::string payload_json = Base64::DecodeUrl(payload_b64);
-        std::string signature = Base64::DecodeUrl(signature_b64);
+    // 2. Header / Algorithm Validation
+    boost::json::value hjv = boost::json::parse(header_json);
+    boost::json::object hobj = hjv.as_object();
 
-        std::string signing_input = header_b64 + "." + payload_b64;
+    if (!hobj.contains("alg") ||
+        boost::json::value_to<std::string>(hobj.at("alg")) != "HS256")
+      throw std::runtime_error(
+          "Unsupported or missing algorithm in header (HS256 required)");
 
-        unsigned char mac[crypto_auth_BYTES];
-        crypto_auth_hmacsha256_state state;
-        crypto_auth_hmacsha256_init(&state, (const unsigned char *)_secret.data(), _secret.size());
-        crypto_auth_hmacsha256_update(&state, (const unsigned char *)signing_input.data(), signing_input.size());
-        crypto_auth_hmacsha256_final(&state, mac);
+    // 3. Signature Validation
+    std::string signing_input = header_b64 + "." + payload_b64;
 
-        if (signature.size() != crypto_auth_BYTES || sodium_memcmp(signature.data(), mac, crypto_auth_BYTES) != 0)
-            throw std::runtime_error("Invalid signature");
+    unsigned char mac[crypto_auth_BYTES];
+    crypto_auth_hmacsha256_state state;
+    crypto_auth_hmacsha256_init(&state, (const unsigned char *)_secret.data(),
+                                _secret.size());
+    crypto_auth_hmacsha256_update(&state,
+                                  (const unsigned char *)signing_input.data(),
+                                  signing_input.size());
+    crypto_auth_hmacsha256_final(&state, mac);
 
-        boost::json::value jv = boost::json::parse(payload_json);
-        boost::json::object obj = jv.as_object();
+    if (signature.size() != crypto_auth_BYTES ||
+        sodium_memcmp(signature.data(), mac, crypto_auth_BYTES) != 0)
+      throw std::runtime_error("Invalid signature: authentication failed");
 
-        if (!obj.contains("IssuedAt") || !obj.contains("ExpiresAt") || !obj.contains("SessionUUID") /* || !obj.contains("apikey") */)
-            throw std::runtime_error("Missing parameters in the header");
+    // 4. Payload Parsing and Temporal Validation
+    boost::json::value jv = boost::json::parse(payload_json);
+    boost::json::object obj = jv.as_object();
 
-        uint64_t now = std::time(nullptr);
+    uint64_t now = std::time(nullptr);
 
-        if (obj["ExpiresAt"].as_int64() < now)
-            throw std::runtime_error("Expired token");
-
-        PayloadModel payload{
-            static_cast<uint64_t>(obj["IssuedAt"].as_int64()),
-            static_cast<uint64_t>(obj["ExpiresAt"].as_int64()),
-            boost::json::value_to<std::string>(obj["SessionUUID"]),
-        };
-
-        return payload;
+    // Check for expiration (exp claim)
+    if (obj.contains("exp")) {
+      if (boost::json::value_to<uint64_t>(obj.at("exp")) < now)
+        throw std::runtime_error("Token has expired");
     }
-    catch (const std::exception &e)
-    {
-        throw std::runtime_error(std::string("[ValidateToken Exception]: ") + e.what());
+    // Compatibility with old ExpiresAt claim
+    else if (obj.contains("ExpiresAt")) {
+      if (boost::json::value_to<uint64_t>(obj.at("ExpiresAt")) < now)
+        throw std::runtime_error("Token has expired");
     }
+
+    return obj;
+  } catch (const std::exception &e) {
+    throw std::runtime_error(std::string("[JWT Validation Error]: ") +
+                             e.what());
+  }
 }
 
-std::string JWT::GenerateToken(const std::string &sessionUUID, const int &expiresInSeconds)
-{
-    try
-    {
-        boost::json::object header;
-        header["alg"] = "HS256";
-        header["typ"] = "JWT";
-        std::string header_json = boost::json::serialize(header);
-        std::string header_b64 = Base64::EncodeUrl(header_json);
+std::string JWT::GenerateToken(const boost::json::object &payload,
+                               const int &expiresInSeconds) {
+  try {
+    // Header
+    boost::json::object header;
+    header["alg"] = "HS256";
+    header["typ"] = "JWT";
+    std::string header_b64 = Base64::EncodeUrl(boost::json::serialize(header));
 
-        boost::json::object payload;
-        std::cout << "Generate token: " << sessionUUID;
+    // Payload
+    boost::json::object final_payload = payload;
+    uint64_t now = std::time(nullptr);
 
-        payload["SessionUUID"] = sessionUUID;
-        payload["IssuedAt"] = static_cast<int64_t>(std::time(nullptr));
-        payload["ExpiresAt"] = static_cast<int64_t>(std::time(nullptr) + expiresInSeconds);
-
-        std::string payload_json = boost::json::serialize(payload);
-        std::string payload_b64 = Base64::EncodeUrl(payload_json);
-
-        std::string signing_input = header_b64 + "." + payload_b64;
-
-        unsigned char mac[crypto_auth_BYTES];
-        crypto_auth_hmacsha256_state state;
-        crypto_auth_hmacsha256_init(&state, reinterpret_cast<const unsigned char *>(_secret.data()), _secret.size());
-        crypto_auth_hmacsha256_update(&state, reinterpret_cast<const unsigned char *>(signing_input.data()), signing_input.size());
-        crypto_auth_hmacsha256_final(&state, mac);
-
-        std::string signature(reinterpret_cast<const char *>(mac), crypto_auth_BYTES);
-        std::string signature_b64 = Base64::EncodeUrl(signature);
-
-        return signing_input + "." + signature_b64;
+    // Add standard claims if not present
+    if (!final_payload.contains("iat")) {
+      final_payload["iat"] = now;
     }
-    catch (const std::exception &e)
-    {
-        throw std::runtime_error(std::string("[GenerateToken Exception]: ") + e.what());
+    if (!final_payload.contains("exp") && expiresInSeconds > 0) {
+      final_payload["exp"] = now + expiresInSeconds;
     }
+
+    std::string payload_b64 =
+        Base64::EncodeUrl(boost::json::serialize(final_payload));
+
+    // Signing
+    std::string signing_input = header_b64 + "." + payload_b64;
+
+    unsigned char mac[crypto_auth_BYTES];
+    crypto_auth_hmacsha256_state state;
+    crypto_auth_hmacsha256_init(
+        &state, reinterpret_cast<const unsigned char *>(_secret.data()),
+        _secret.size());
+    crypto_auth_hmacsha256_update(
+        &state, reinterpret_cast<const unsigned char *>(signing_input.data()),
+        signing_input.size());
+    crypto_auth_hmacsha256_final(&state, mac);
+
+    std::string signature(reinterpret_cast<const char *>(mac),
+                          crypto_auth_BYTES);
+    return signing_input + "." + Base64::EncodeUrl(signature);
+  } catch (const std::exception &e) {
+    throw std::runtime_error(std::string("[JWT Generation Error]: ") +
+                             e.what());
+  }
 };
 
-void JWT::SetJWTSecret(const std::string &secret)
-{
-    JWT::_secret = secret;
+void JWT::SetJWTSecret(const std::string &secret) {
+  if (secret.size() < 32)
+    throw std::runtime_error("JWT secret must be at least 32 characters long");
+  JWT::_secret = secret;
 };
