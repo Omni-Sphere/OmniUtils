@@ -1,6 +1,7 @@
 #include "Base64.hpp"
 #include <vector>
 
+namespace omnisphere::utils {
 void Base64::SetSecret(const std::string& secret) 
 {
     _secret = secret;
@@ -159,4 +160,5 @@ std::string Base64::DecodeBase64Url(const std::string& encoded)
     while(b64.size() % 4 != 0) b64 += '=';
 
     return DecodeBase64(b64);
+}
 }

@@ -2,6 +2,7 @@
 #include <sstream>
 #include <iomanip>
 
+namespace omnisphere::utils {
 class UUIDv4
 {
 public:
@@ -29,3 +30,4 @@ public:
         return oss.str();
     };
 };
+}

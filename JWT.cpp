@@ -7,6 +7,7 @@
 #include <sstream>
 #include <stdexcept>
 
+namespace omnisphere::utils {
 boost::json::object JWT::ValidateToken(const std::string &token) {
   try {
     // 1. Format Validation
@@ -125,3 +126,4 @@ void JWT::SetJWTSecret(const std::string &secret) {
     throw std::runtime_error("JWT secret must be at least 32 characters long");
   JWT::_secret = secret;
 };
+}

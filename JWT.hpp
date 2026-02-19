@@ -3,6 +3,7 @@
 #include <boost/json.hpp>
 #include <string>
 
+namespace omnisphere::utils {
 
 class JWT {
 public:
@@ -13,3 +14,4 @@ public:
 private:
   static inline std::string _secret{};
 };
+}

@@ -1,5 +1,6 @@
 #include "Hasher.hpp"
 
+namespace omnisphere::utils {
 void Hasher::Initialize()
 {
     if (sodium_init() < 0)
@@ -62,3 +63,4 @@ std::vector<uint8_t> Hasher::HashStringGeneric(const std::string &input)
 
     return hash;
 };
+}

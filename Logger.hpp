@@ -9,7 +9,7 @@
 #include <iomanip>
 #include <boost/json.hpp>
 
-namespace omnicore::utils
+namespace omnisphere::utils
 {
     enum class LogType
     {

@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <cctype>
 
+namespace omnisphere::utils {
 class Base64 {
 public:
     static void SetSecret(const std::string&);
@@ -31,3 +32,4 @@ private:
     static std::string EncodeBase64Url(const std::string&);
     static std::string DecodeBase64Url(const std::string&);
 };
+}
