@@ -5,8 +5,14 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
-set(LIBS_DIR "${CMAKE_BINARY_DIR}/OmniUtils/Libs")
 set(INCLUDE_DIR "${CMAKE_BINARY_DIR}/OmniUtils/Include")
+set(LIBS_DIR "${CMAKE_BINARY_DIR}/OmniUtils")
+
+if(WIN32)
+    set(ARCHIVE_DIR "${CMAKE_BINARY_DIR}/OmniUtils/Libs")
+else()
+    set(ARCHIVE_DIR "${LIBS_DIR}")
+endif()
 
 add_library(OmniUtils SHARED
     Base64.cpp
@@ -28,18 +34,17 @@ target_link_libraries(OmniUtils PUBLIC
     Boost::json
 )
 
-
-# Build output directories
 if(WIN32)
     set_target_properties(OmniUtils PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${LIBS_DIR}"
         LIBRARY_OUTPUT_DIRECTORY "${LIBS_DIR}"
-        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/OmniUtils"
+        ARCHIVE_OUTPUT_DIRECTORY "${ARCHIVE_DIR}"
     )
 else()
     set_target_properties(OmniUtils PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${LIBS_DIR}"
-        ARCHIVE_OUTPUT_DIRECTORY "${LIBS_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY "${LIBS_DIR}"
+        ARCHIVE_OUTPUT_DIRECTORY "${ARCHIVE_DIR}"
     )
 endif()
 
@@ -90,7 +95,6 @@ file(GLOB_RECURSE PUBLIC_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
 )
 
-# Copy headers to build directory: OmniUtils/Include
 foreach(HDR ${PUBLIC_HEADERS})
     file(RELATIVE_PATH REL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" "${HDR}")
     set(DEST_PATH "${INCLUDE_DIR}/${REL_PATH}")
@@ -102,8 +106,6 @@ foreach(HDR ${PUBLIC_HEADERS})
     )
 endforeach()
 
-# Installation rules for 'make install'
-# Install library to /usr/local/lib/OmniSphere/
 install(TARGETS OmniUtils
     EXPORT OmniUtilsTargets
     LIBRARY DESTINATION lib/OmniSphere
@@ -111,7 +113,6 @@ install(TARGETS OmniUtils
     RUNTIME DESTINATION bin
 )
 
-# Install headers to /usr/local/include/OmniSphere/OmniUtils/
 foreach(HDR ${PUBLIC_HEADERS})
     file(RELATIVE_PATH REL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" "${HDR}")
     get_filename_component(DEST_DIR "${REL_PATH}" DIRECTORY)
@@ -123,36 +124,30 @@ foreach(HDR ${PUBLIC_HEADERS})
     endif()
 endforeach()
 
-# Generate and install CMake package configuration files
 include(CMakePackageConfigHelpers)
 
-# Create the config file
 configure_package_config_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/OmniUtilsConfig.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/OmniUtilsConfig.cmake"
     INSTALL_DESTINATION lib/cmake/OmniUtils
 )
 
-# Install the config file
 install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/OmniUtilsConfig.cmake"
     DESTINATION lib/cmake/OmniUtils
 )
 
-# Export targets
 install(EXPORT OmniUtilsTargets
     FILE OmniUtilsTargets.cmake
     NAMESPACE OmniUtils::
     DESTINATION lib/cmake/OmniUtils
 )
 
-# Add export to the build tree
 export(TARGETS OmniUtils
     FILE "${CMAKE_CURRENT_BINARY_DIR}/OmniUtilsTargets.cmake"
     NAMESPACE OmniUtils::
 )
 
-# Automatic ldconfig configuration for Linux (only when installing to system)
 if(UNIX AND NOT APPLE)
     install(CODE "
         file(WRITE \"/etc/ld.so.conf.d/omnisphere.conf\" \"/usr/local/lib/OmniSphere\\n\")
