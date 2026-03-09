@@ -18,6 +18,7 @@ add_library(OmniUtils SHARED
     Base64.cpp
     Hasher.cpp
     JWT.cpp
+    ConfigDB.cpp
     Logger.hpp
 )
 
@@ -27,11 +28,12 @@ target_include_directories(OmniUtils PUBLIC
 )
 
 find_library(SODIUM_LIB sodium REQUIRED)
-find_package(Boost REQUIRED COMPONENTS json)
+find_package(Boost REQUIRED COMPONENTS json filesystem)
 
 target_link_libraries(OmniUtils PUBLIC
     ${SODIUM_LIB}
     Boost::json
+    Boost::filesystem
 )
 
 if(WIN32)
