@@ -52,13 +52,12 @@ boost::json::object ConfigDB::GetConfig() const {
 }
 
 void ConfigDB::SaveConfig(const std::string &server,
-                          const std::string &database, const std::string &user,
+                          const std::string &user,
                           const std::string &password, bool trustCertificate,
                           bool trustedConnection) {
   try {
     boost::json::object config;
     config["Server"] = server;
-    config["Database"] = database;
     config["User"] = user;
     config["Password"] = password;
     config["TrustCertificate"] = trustCertificate;
@@ -74,7 +73,7 @@ void ConfigDB::SaveConfig(const std::string &server,
 }
 
 void ConfigDB::createDefaultConfig() {
-  SaveConfig("", "", "", "", true, false);
+  SaveConfig("", "", "", true, false);
 }
 
 } // namespace omnisphere::utils
