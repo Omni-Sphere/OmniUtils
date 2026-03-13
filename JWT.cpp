@@ -40,8 +40,9 @@ boost::json::object JWT::ValidateToken(const std::string &token) {
 
     unsigned char mac[crypto_auth_BYTES];
     crypto_auth_hmacsha256_state state;
-    crypto_auth_hmacsha256_init(&state, (const unsigned char *)_secret.data(),
-                                _secret.size());
+    const std::string& effective_secret = _secret.empty() ? Base64::_secretJWT : _secret;
+    crypto_auth_hmacsha256_init(&state, (const unsigned char *)effective_secret.data(),
+                                effective_secret.size());
     crypto_auth_hmacsha256_update(&state,
                                   (const unsigned char *)signing_input.data(),
                                   signing_input.size());
@@ -104,9 +105,10 @@ std::string JWT::GenerateToken(const boost::json::object &payload,
 
     unsigned char mac[crypto_auth_BYTES];
     crypto_auth_hmacsha256_state state;
+    const std::string& effective_secret = _secret.empty() ? Base64::_secretJWT : _secret;
     crypto_auth_hmacsha256_init(
-        &state, reinterpret_cast<const unsigned char *>(_secret.data()),
-        _secret.size());
+        &state, reinterpret_cast<const unsigned char *>(effective_secret.data()),
+        effective_secret.size());
     crypto_auth_hmacsha256_update(
         &state, reinterpret_cast<const unsigned char *>(signing_input.data()),
         signing_input.size());
@@ -122,8 +124,8 @@ std::string JWT::GenerateToken(const boost::json::object &payload,
 };
 
 void JWT::SetJWTSecret(const std::string &secret) {
-  if (secret.size() < 32)
-    throw std::runtime_error("JWT secret must be at least 32 characters long");
+  if (secret.size() < 20)
+    throw std::runtime_error("JWT secret must be at least 20 characters long");
   JWT::_secret = secret;
 };
 }

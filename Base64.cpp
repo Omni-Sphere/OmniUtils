@@ -2,37 +2,23 @@
 #include <vector>
 
 namespace omnisphere::utils {
-void Base64::SetSecret(const std::string& secret) 
-{
-    _secret = secret;
-}
-
-bool Base64::IsBase64(unsigned char c) {
-    return (std::isalnum(c) || (c == '+') || (c == '/'));
-}
 
 std::string Base64::Encode(const std::string& input) 
 {
-    if (_secret.empty()) {
-        throw std::runtime_error("Base64 secret no inicializado");
-    }
-    std::string obscured = _secret + input + _secret;
-    return EncodeBase64(obscured);
+    return EncodeBase64(_secretString + input + _secretString);
 }
 
 std::string Base64::Decode(const std::string& encoded) 
 {
-    if (_secret.empty()) {
-        throw std::runtime_error("Base64 secret no inicializado");
-    }
     std::string decoded = DecodeBase64(encoded);
 
-    size_t secretLen = _secret.length();
+    size_t secretLen = _secretString.length();
+    
     if (decoded.length() < secretLen * 2) {
         throw std::runtime_error("Cadena Base64 inválida o dañada");
     }
-    if (decoded.substr(0, secretLen) != _secret ||
-        decoded.substr(decoded.length() - secretLen) != _secret) {
+    if (decoded.substr(0, secretLen) != _secretString ||
+        decoded.substr(decoded.length() - secretLen) != _secretString) {
         throw std::runtime_error("Secreto no coincide al decodificar");
     }
     return decoded.substr(secretLen, decoded.length() - 2 * secretLen);
