@@ -1,6 +1,7 @@
 #pragma once
 
 #include <boost/json.hpp>
+#include <mutex>
 #include <string>
 
 namespace omnisphere::utils {
@@ -20,6 +21,10 @@ public:
 private:
   std::string _configPath;
   std::string _configDir;
+
+  mutable boost::json::object _cache;
+  mutable bool _loaded = false;
+  mutable std::mutex _mutex;
 
   void createDefaultConfig();
 };

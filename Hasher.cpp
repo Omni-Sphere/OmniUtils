@@ -36,7 +36,7 @@ bool Hasher::VerifyPassword(const std::string &password, const std::vector<uint8
         try
         {           
             std::string hashStr(reinterpret_cast<const char *>(hash.data()), strnlen(reinterpret_cast<const char *>(hash.data()), hash.size()));
-
+            
             return crypto_pwhash_str_verify(hashStr.c_str(), password.c_str(), password.length()) == 0;
 
         }

@@ -31,9 +31,19 @@ void ConfigDB::Initialize() {
   }
 }
 
-bool ConfigDB::Exists() const { return fs::exists(_configPath); }
+bool ConfigDB::Exists() const {
+  std::lock_guard<std::mutex> lock(_mutex);
+  if (_loaded)
+    return true; // If loaded, it exists (even if empty)
+  return fs::exists(_configPath);
+}
 
 boost::json::object ConfigDB::GetConfig() const {
+  std::lock_guard<std::mutex> lock(_mutex);
+  if (_loaded) {
+    return _cache;
+  }
+
   try {
     std::ifstream ifs(_configPath);
     if (!ifs.is_open()) {
@@ -44,17 +54,19 @@ boost::json::object ConfigDB::GetConfig() const {
                         std::istreambuf_iterator<char>());
 
     auto value = boost::json::parse(content);
-    return value.as_object();
+    _cache = value.as_object();
+    _loaded = true;
+    return _cache;
   } catch (const std::exception &e) {
     std::cerr << "Error reading config: " << e.what() << std::endl;
     return {};
   }
 }
 
-void ConfigDB::SaveConfig(const std::string &server,
-                          const std::string &user,
+void ConfigDB::SaveConfig(const std::string &server, const std::string &user,
                           const std::string &password, bool trustCertificate,
                           bool trustedConnection) {
+  std::lock_guard<std::mutex> lock(_mutex);
   try {
     boost::json::object config;
     config["Server"] = server;
@@ -66,6 +78,9 @@ void ConfigDB::SaveConfig(const std::string &server,
     std::ofstream ofs(_configPath);
     if (ofs.is_open()) {
       ofs << boost::json::serialize(config);
+      // Update cache
+      _cache = config;
+      _loaded = true;
     }
   } catch (const std::exception &e) {
     std::cerr << "Error saving config: " << e.what() << std::endl;
