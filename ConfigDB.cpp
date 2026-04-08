@@ -1,4 +1,5 @@
 #include "ConfigDB.hpp"
+#include "Base64.hpp"
 #include <boost/filesystem.hpp>
 #include <fstream>
 #include <iostream>
@@ -103,9 +104,19 @@ std::string ConfigDB::GetConnectionString() const {
     engine = static_cast<int>(config.at("DatabaseEngine").as_int64());
   }
 
-  std::string server = config.contains("Server") ? config.at("Server").as_string().c_str() : "";
-  std::string user = config.contains("User") ? config.at("User").as_string().c_str() : "";
-  std::string password = config.contains("Password") ? config.at("Password").as_string().c_str() : "";
+  auto safeDecode = [](const std::string& input) -> std::string {
+    if (input.empty()) return "";
+    try {
+      return Base64::Decode(input);
+    } catch (...) {
+      // If it's not base64 or doesn't have our secret, it's probably plain text
+      return input;
+    }
+  };
+
+  std::string server = safeDecode(config.contains("Server") ? config.at("Server").as_string().c_str() : "");
+  std::string user = safeDecode(config.contains("User") ? config.at("User").as_string().c_str() : "");
+  std::string password = safeDecode(config.contains("Password") ? config.at("Password").as_string().c_str() : "");
   std::string database = config.contains("Database") ? config.at("Database").as_string().c_str() : "OmniPOS";
   if (database.empty()) database = "OmniPOS";
   bool trustCert = config.contains("TrustCertificate") ? config.at("TrustCertificate").as_bool() : true;
