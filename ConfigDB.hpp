@@ -15,8 +15,10 @@ public:
   bool Exists() const;
   boost::json::object GetConfig() const;
   void SaveConfig(const std::string &server, const std::string &user,
-                  const std::string &password, bool trustCertificate,
-                  bool trustedConnection);
+                  const std::string &password, const std::string &database,
+                  bool trustCertificate, bool trustedConnection,
+                  int dbEngine = 1);
+  std::string GetConnectionString() const;
 
 private:
   std::string _configPath;

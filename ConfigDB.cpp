@@ -64,16 +64,19 @@ boost::json::object ConfigDB::GetConfig() const {
 }
 
 void ConfigDB::SaveConfig(const std::string &server, const std::string &user,
-                          const std::string &password, bool trustCertificate,
-                          bool trustedConnection) {
+                          const std::string &password,
+                          const std::string &database, bool trustCertificate,
+                          bool trustedConnection, int dbEngine) {
   std::lock_guard<std::mutex> lock(_mutex);
   try {
     boost::json::object config;
     config["Server"] = server;
     config["User"] = user;
     config["Password"] = password;
+    config["Database"] = database;
     config["TrustCertificate"] = trustCertificate;
     config["TrustedConnection"] = trustedConnection;
+    config["DatabaseEngine"] = dbEngine;
 
     std::ofstream ofs(_configPath);
     if (ofs.is_open()) {
@@ -87,8 +90,45 @@ void ConfigDB::SaveConfig(const std::string &server, const std::string &user,
   }
 }
 
-void ConfigDB::createDefaultConfig() {
-  SaveConfig("", "", "", true, false);
+void ConfigDB::createDefaultConfig() { SaveConfig("", "", "", "OmniPOS", true, false, 1); }
+
+std::string ConfigDB::GetConnectionString() const {
+  auto config = GetConfig();
+  if (config.empty()) {
+    return "";
+  }
+
+  int engine = 1;
+  if (config.contains("DatabaseEngine")) {
+    engine = static_cast<int>(config.at("DatabaseEngine").as_int64());
+  }
+
+  std::string server = config.contains("Server") ? config.at("Server").as_string().c_str() : "";
+  std::string user = config.contains("User") ? config.at("User").as_string().c_str() : "";
+  std::string password = config.contains("Password") ? config.at("Password").as_string().c_str() : "";
+  std::string database = config.contains("Database") ? config.at("Database").as_string().c_str() : "OmniPOS";
+  if (database.empty()) database = "OmniPOS";
+  bool trustCert = config.contains("TrustCertificate") ? config.at("TrustCertificate").as_bool() : true;
+  bool trustedConn = config.contains("TrustedConnection") ? config.at("TrustedConnection").as_bool() : false;
+
+  if (engine == 1) {
+    std::string conn = "Driver={ODBC Driver 18 for SQL Server};Server=" + server + ";";
+    if (!database.empty()) conn += "Database=" + database + ";";
+    if (trustedConn) {
+      conn += "Trusted_Connection=yes;";
+    } else {
+      conn += "Uid=" + user + ";Pwd=" + password + ";";
+    }
+    conn += "TrustServerCertificate=" + std::string(trustCert ? "yes" : "no") + ";";
+    return conn;
+  } else if (engine == 2) {
+    std::string conn = "Driver={MySQL ODBC 9.4 Driver};Server=" + server + ";";
+    if (!database.empty()) conn += "Database=" + database + ";";
+    conn += "User=" + user + ";Password=" + password + ";";
+    return conn;
+  }
+
+  return "";
 }
 
 } // namespace omnisphere::utils
