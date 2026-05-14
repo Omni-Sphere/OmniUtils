@@ -19,6 +19,7 @@ add_library(OmniUtils SHARED
     Hasher.cpp
     JWT.cpp
     ConfigDB.cpp
+    Logger.cpp
     Logger.hpp
 )
 
@@ -28,12 +29,16 @@ target_include_directories(OmniUtils PUBLIC
 )
 
 find_library(SODIUM_LIB sodium REQUIRED)
-find_package(Boost REQUIRED COMPONENTS json filesystem)
+find_package(Boost REQUIRED COMPONENTS json filesystem log log_setup date_time thread)
 
 target_link_libraries(OmniUtils PUBLIC
     ${SODIUM_LIB}
     Boost::json
     Boost::filesystem
+    Boost::log
+    Boost::log_setup
+    Boost::date_time
+    Boost::thread
 )
 
 if(WIN32)

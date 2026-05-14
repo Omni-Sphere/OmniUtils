@@ -3,6 +3,7 @@
 #include <boost/filesystem.hpp>
 #include <fstream>
 #include <iostream>
+#include <Logger.hpp>
 
 namespace omnisphere::utils {
 
@@ -17,18 +18,18 @@ void ConfigDB::Initialize() {
   try {
     if (!fs::exists(_configDir)) {
       if (fs::create_directory(_configDir)) {
-        std::cout << "Created directory: " << _configDir << std::endl;
+        Logger::LogSystem(LogType::INFO, "ConfigDB", "Created directory: " + _configDir);
       }
     }
 
     if (!fs::exists(_configPath)) {
       createDefaultConfig();
-      std::cout << "Created default config file: " << _configPath << std::endl;
+      Logger::LogSystem(LogType::INFO, "ConfigDB", "Created default config file: " + _configPath);
     }
   } catch (const fs::filesystem_error &e) {
-    std::cerr << "Filesystem error: " << e.what() << std::endl;
+    Logger::LogSystem(LogType::ERROR, "ConfigDB", "Filesystem error: " + std::string(e.what()));
   } catch (const std::exception &e) {
-    std::cerr << "General error: " << e.what() << std::endl;
+    Logger::LogSystem(LogType::ERROR, "ConfigDB", "General error: " + std::string(e.what()));
   }
 }
 
@@ -59,7 +60,7 @@ boost::json::object ConfigDB::GetConfig() const {
     _loaded = true;
     return _cache;
   } catch (const std::exception &e) {
-    std::cerr << "Error reading config: " << e.what() << std::endl;
+    Logger::LogSystem(LogType::ERROR, "ConfigDB", "Error reading config: " + std::string(e.what()));
     return {};
   }
 }
@@ -87,7 +88,7 @@ void ConfigDB::SaveConfig(const std::string &server, const std::string &user,
       _loaded = true;
     }
   } catch (const std::exception &e) {
-    std::cerr << "Error saving config: " << e.what() << std::endl;
+    Logger::LogSystem(LogType::ERROR, "ConfigDB", "Error saving config: " + std::string(e.what()));
   }
 }
 
