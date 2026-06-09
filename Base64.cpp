@@ -1,164 +1,191 @@
 #include <Base64.hpp>
 #include <vector>
 
-namespace omnisphere::utils {
+namespace omnisphere::utils
+{
+    std::string Base64::Encode(const std::string &input)
+    {
+        std::string xored;
+        xored.reserve(input.size());
 
-std::string Base64::Encode(const std::string &input) {
-  std::string xored;
-  xored.reserve(input.size());
-  for (size_t i = 0; i < input.size(); ++i) {
-    xored +=
-        static_cast<char>(input[i] ^ _secretString[i % _secretString.length()]);
-  }
-  return EncodeBase64(xored);
-}
+        for (size_t i = 0; i < input.size(); ++i)
+        {
+            xored +=
+            static_cast<char>(input[i] ^ _secretString[i % _secretString.length()]);
+        }
 
-std::string Base64::Decode(const std::string &encoded) {
-  std::string decoded = DecodeBase64(encoded);
-  std::string unxored;
-  unxored.reserve(decoded.size());
-  for (size_t i = 0; i < decoded.size(); ++i) {
-    unxored +=
-        static_cast<char>(decoded[i] ^ _secretString[i % _secretString.length()]);
-  }
-  return unxored;
-}
-
-std::string Base64::EncodeUrl(const std::string &input) {
-  return EncodeBase64Url(input);
-}
-
-std::string Base64::DecodeUrl(const std::string &encoded) {
-  return DecodeBase64Url(encoded);
-}
-
-std::string Base64::EncodeBase64(const std::string &input) {
-  unsigned int in_len = static_cast<unsigned int>(input.size());
-  const unsigned char *bytes_to_encode =
-      reinterpret_cast<const unsigned char *>(input.c_str());
-  std::string ret;
-  int i = 0;
-  int j = 0;
-  unsigned char char_array_3[3];
-  unsigned char char_array_4[4];
-
-  while (in_len--) {
-    char_array_3[i++] = *(bytes_to_encode++);
-    if (i == 3) {
-      char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-      char_array_4[1] =
-          ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-      char_array_4[2] =
-          ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
-      char_array_4[3] = char_array_3[2] & 0x3f;
-
-      for (i = 0; i < 4; i++)
-        ret += base64_chars[char_array_4[i]];
-      i = 0;
+        return EncodeBase64(xored);
     }
-  }
 
-  if (i) {
-    for (j = i; j < 3; j++)
-      char_array_3[j] = '\0';
+    std::string Base64::Decode(const std::string &encoded)
+    {
+        std::string decoded = DecodeBase64(encoded);
+        std::string unxored;
+        unxored.reserve(decoded.size());
 
-    char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-    char_array_4[1] =
-        ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-    char_array_4[2] =
-        ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
-    char_array_4[3] = char_array_3[2] & 0x3f;
+        for (size_t i = 0; i < decoded.size(); ++i)
+        {
+            unxored +=
+            static_cast<char>(decoded[i] ^ _secretString[i % _secretString.length()]);
+        }
 
-    for (j = 0; j < i + 1; j++)
-      ret += base64_chars[char_array_4[j]];
-
-    while ((i++ < 3))
-      ret += '=';
-  }
-
-  return ret;
-}
-
-std::string Base64::DecodeBase64(const std::string &encoded_string) {
-  int in_len = static_cast<int>(encoded_string.size());
-  int i = 0;
-  int j = 0;
-  int in_ = 0;
-  unsigned char char_array_4[4], char_array_3[3];
-  std::string ret;
-
-  while (in_len-- && (encoded_string[in_] != '=') &&
-         IsBase64(encoded_string[in_])) {
-    char_array_4[i++] = static_cast<unsigned char>(encoded_string[in_]);
-    in_++;
-    if (i == 4) {
-      for (i = 0; i < 4; i++)
-        char_array_4[i] =
-            static_cast<unsigned char>(base64_chars.find(char_array_4[i]));
-
-      char_array_3[0] =
-          (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-      char_array_3[1] =
-          ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-      char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
-
-      for (i = 0; i < 3; i++)
-        ret += static_cast<char>(char_array_3[i]);
-      i = 0;
+        return unxored;
     }
-  }
 
-  if (i) {
-    for (j = i; j < 4; j++)
-      char_array_4[j] = 0;
+    std::string Base64::EncodeUrl(const std::string &input)
+    {
+        return EncodeBase64Url(input);
+    }
 
-    for (j = 0; j < 4; j++)
-      char_array_4[j] =
-          static_cast<unsigned char>(base64_chars.find(char_array_4[j]));
+    std::string Base64::DecodeUrl(const std::string &encoded)
+    {
+        return DecodeBase64Url(encoded);
+    }
 
-    char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-    char_array_3[1] =
-        ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-    char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+    std::string Base64::EncodeBase64(const std::string &input)
+    {
+        unsigned int in_len = static_cast<unsigned int>(input.size());
+        const unsigned char *bytes_to_encode =
+        reinterpret_cast<const unsigned char *>(input.c_str());
+        std::string ret;
+        int i = 0;
+        int j = 0;
+        unsigned char char_array_3[3];
+        unsigned char char_array_4[4];
 
-    for (j = 0; j < i - 1; j++)
-      ret += static_cast<char>(char_array_3[j]);
-  }
+        while (in_len--)
+        {
+            char_array_3[i++] = *(bytes_to_encode++);
 
-  return ret;
-}
+            if (i == 3)
+            {
+                char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+                char_array_4[1] =
+                ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+                char_array_4[2] =
+                ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+                char_array_4[3] = char_array_3[2] & 0x3f;
 
-std::string Base64::EncodeBase64Url(const std::string &input) {
-  std::string b64 = EncodeBase64(input);
+                for (i = 0; i < 4; i++)
+                    ret += base64_chars[char_array_4[i]];
+                i = 0;
+            }
+        }
 
-  std::string ret;
-  for (char c : b64) {
-    if (c == '+')
-      ret += '-';
-    else if (c == '/')
-      ret += '_';
-    else if (c == '=')
-      ;
-    else
-      ret += c;
-  }
-  return ret;
-}
+        if (i)
+        {
+            for (j = i; j < 3; j++)
+                char_array_3[j] = '\0';
 
-std::string Base64::DecodeBase64Url(const std::string &encoded) {
-  std::string b64;
-  for (char c : encoded) {
-    if (c == '-')
-      b64 += '+';
-    else if (c == '_')
-      b64 += '/';
-    else
-      b64 += c;
-  }
+            char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+            char_array_4[1] =
+            ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+            char_array_4[2] =
+            ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+            char_array_4[3] = char_array_3[2] & 0x3f;
 
-  while (b64.size() % 4 != 0)
-    b64 += '=';
+            for (j = 0; j < i + 1; j++)
+                ret += base64_chars[char_array_4[j]];
 
-  return DecodeBase64(b64);
-}
+            while ((i++ < 3))
+                ret += '=';
+        }
+
+        return ret;
+    }
+
+    std::string Base64::DecodeBase64(const std::string &encoded_string)
+    {
+        int in_len = static_cast<int>(encoded_string.size());
+        int i = 0;
+        int j = 0;
+        int in_ = 0;
+        unsigned char char_array_4[4], char_array_3[3];
+        std::string ret;
+
+        while (in_len-- && (encoded_string[in_] != '=') &&
+                 IsBase64(encoded_string[in_]))
+        {
+            char_array_4[i++] = static_cast<unsigned char>(encoded_string[in_]);
+            in_++;
+
+            if (i == 4)
+            {
+                for (i = 0; i < 4; i++)
+                    char_array_4[i] =
+                    static_cast<unsigned char>(base64_chars.find(char_array_4[i]));
+
+                char_array_3[0] =
+                (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+                char_array_3[1] =
+                ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+                char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+                for (i = 0; i < 3; i++)
+                    ret += static_cast<char>(char_array_3[i]);
+                i = 0;
+            }
+        }
+
+        if (i)
+        {
+            for (j = i; j < 4; j++)
+                char_array_4[j] = 0;
+
+            for (j = 0; j < 4; j++)
+                char_array_4[j] =
+                static_cast<unsigned char>(base64_chars.find(char_array_4[j]));
+
+            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+            char_array_3[1] =
+            ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+            for (j = 0; j < i - 1; j++)
+                ret += static_cast<char>(char_array_3[j]);
+        }
+
+        return ret;
+    }
+
+    std::string Base64::EncodeBase64Url(const std::string &input)
+    {
+        std::string b64 = EncodeBase64(input);
+
+        std::string ret;
+
+        for (char c : b64)
+        {
+            if (c == '+')
+            ret += '-';
+            else if (c == '/')
+                ret += '_';
+            else if (c == '=')
+                ;
+            else
+                ret += c;
+        }
+
+        return ret;
+    }
+
+    std::string Base64::DecodeBase64Url(const std::string &encoded)
+    {
+        std::string b64;
+
+        for (char c : encoded)
+        {
+            if (c == '-')
+            b64 += '+';
+            else if (c == '_')
+                b64 += '/';
+            else
+                b64 += c;
+        }
+
+        while (b64.size() % 4 != 0)
+            b64 += '=';
+
+        return DecodeBase64(b64);
+    }
 } // namespace omnisphere::utils
