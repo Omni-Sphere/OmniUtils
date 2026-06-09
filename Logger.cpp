@@ -53,9 +53,9 @@ namespace omnisphere::utils
                 keywords::auto_flush = true);
             systemSink->set_filter(channel == "SYSTEM");
             systemSink->set_formatter(expr::format("%1% %2% %3%") %
-                                          expr::format_date_time<boost::posix_time::ptime>(
-                                              "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
-                                          origin % expr::smessage);
+                                      expr::format_date_time<boost::posix_time::ptime>(
+                                          "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
+                                      origin % expr::smessage);
 
             // --- DEBUG LOG SINK ---
             auto debugSink = logging::add_file_log(
@@ -66,9 +66,9 @@ namespace omnisphere::utils
                 keywords::auto_flush = true);
             debugSink->set_filter(channel == "DEBUG");
             debugSink->set_formatter(expr::format("%1% %2% %3%") %
-                                         expr::format_date_time<boost::posix_time::ptime>(
-                                             "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
-                                         origin % expr::smessage);
+                                     expr::format_date_time<boost::posix_time::ptime>(
+                                         "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
+                                     origin % expr::smessage);
 
             // --- GRAPHQL LOG SINK ---
             auto gqlSink = logging::add_file_log(
@@ -79,16 +79,16 @@ namespace omnisphere::utils
                 keywords::auto_flush = true);
             gqlSink->set_filter(channel == "GRAPHQL");
             gqlSink->set_formatter(expr::format("%1% %2%") %
-                                       expr::format_date_time<boost::posix_time::ptime>(
-                                           "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
-                                       expr::smessage);
+                                   expr::format_date_time<boost::posix_time::ptime>(
+                                       "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
+                                   expr::smessage);
 
             // --- CONSOLE SINK (for development) ---
             auto consoleSink = logging::add_console_log(std::clog);
             consoleSink->set_formatter(expr::format("%1% %2% %3%") %
-                                           expr::format_date_time<boost::posix_time::ptime>(
-                                               "TimeStamp", "%H:%M:%S") %
-                                           origin % expr::smessage);
+                                       expr::format_date_time<boost::posix_time::ptime>(
+                                           "TimeStamp", "%H:%M:%S") %
+                                       origin % expr::smessage);
 
             logging::core::get()->set_filter(severity >= LogType::DEBUG);
             std::cout << "[Logger] Advanced multi-channel logging system active. "

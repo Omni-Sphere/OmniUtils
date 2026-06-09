@@ -4,31 +4,32 @@
 #include <mutex>
 #include <string>
 
-namespace omnisphere::utils {
+namespace omnisphere::utils
+{
+    class ConfigDB
+    {
+        public:
+        ConfigDB();
+        ~ConfigDB() = default;
 
-class ConfigDB {
-public:
-  ConfigDB();
-  ~ConfigDB() = default;
+        void Initialize();
+        bool Exists() const;
+        boost::json::object GetConfig() const;
+        void SaveConfig(const std::string &server, const std::string &user,
+                        const std::string &password, const std::string &database,
+                        bool trustCertificate, bool trustedConnection,
+                        int dbEngine = 1);
+        std::string GetConnectionString() const;
 
-  void Initialize();
-  bool Exists() const;
-  boost::json::object GetConfig() const;
-  void SaveConfig(const std::string &server, const std::string &user,
-                  const std::string &password, const std::string &database,
-                  bool trustCertificate, bool trustedConnection,
-                  int dbEngine = 1);
-  std::string GetConnectionString() const;
+        private:
+        std::string _configPath;
+        std::string _configDir;
 
-private:
-  std::string _configPath;
-  std::string _configDir;
+        mutable boost::json::object _cache;
+        mutable bool _loaded = false;
+        mutable std::mutex _mutex;
 
-  mutable boost::json::object _cache;
-  mutable bool _loaded = false;
-  mutable std::mutex _mutex;
-
-  void createDefaultConfig();
-};
+        void createDefaultConfig();
+    };
 
 } // namespace omnisphere::utils

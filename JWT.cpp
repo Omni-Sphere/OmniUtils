@@ -34,7 +34,7 @@ namespace omnisphere::utils
             boost::json::object hobj = hjv.as_object();
 
             if (!hobj.contains("alg") ||
-                    boost::json::value_to<std::string>(hobj.at("alg")) != "HS256")
+                boost::json::value_to<std::string>(hobj.at("alg")) != "HS256")
             throw std::runtime_error(
                 "Unsupported or missing algorithm in header (HS256 required)");
 
@@ -45,14 +45,14 @@ namespace omnisphere::utils
             crypto_auth_hmacsha256_state state;
             const std::string& effective_secret = _secret.empty() ? Base64::_secretJWT : _secret;
             crypto_auth_hmacsha256_init(&state, (const unsigned char *)effective_secret.data(),
-                                            effective_secret.size());
+                                        effective_secret.size());
             crypto_auth_hmacsha256_update(&state,
-                                              (const unsigned char *)signing_input.data(),
-                                              signing_input.size());
+                                          (const unsigned char *)signing_input.data(),
+                                          signing_input.size());
             crypto_auth_hmacsha256_final(&state, mac);
 
             if (signature.size() != crypto_auth_BYTES ||
-                    sodium_memcmp(signature.data(), mac, crypto_auth_BYTES) != 0)
+                sodium_memcmp(signature.data(), mac, crypto_auth_BYTES) != 0)
             throw std::runtime_error("Invalid signature: authentication failed");
 
             // 4. Payload Parsing and Temporal Validation
@@ -79,7 +79,7 @@ namespace omnisphere::utils
         catch (const std::exception &e)
         {
             throw std::runtime_error(std::string("[JWT Validation Error]: ") +
-                                         e.what());
+                                     e.what());
         }
     }
 
@@ -128,14 +128,14 @@ namespace omnisphere::utils
             crypto_auth_hmacsha256_final(&state, mac);
 
             std::string signature(reinterpret_cast<const char *>(mac),
-                                      crypto_auth_BYTES);
+                                  crypto_auth_BYTES);
 
             return signing_input + "." + Base64::EncodeUrl(signature);
         }
         catch (const std::exception &e)
         {
             throw std::runtime_error(std::string("[JWT Generation Error]: ") +
-                                         e.what());
+                                     e.what());
         }
     };
 

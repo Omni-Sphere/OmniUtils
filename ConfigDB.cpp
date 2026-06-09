@@ -71,7 +71,7 @@ namespace omnisphere::utils
             }
 
             std::string content((std::istreambuf_iterator<char>(ifs)),
-                                    std::istreambuf_iterator<char>());
+                                std::istreambuf_iterator<char>());
 
             auto value = boost::json::parse(content);
             _cache = value.as_object();
@@ -121,6 +121,7 @@ namespace omnisphere::utils
     }
 
     void ConfigDB::createDefaultConfig()
+
     { SaveConfig("", "", "", "OmniPOS", true, false, 1); }
 
     std::string ConfigDB::GetConnectionString() const

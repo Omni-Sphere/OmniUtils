@@ -104,7 +104,7 @@ namespace omnisphere::utils
         std::string ret;
 
         while (in_len-- && (encoded_string[in_] != '=') &&
-                 IsBase64(encoded_string[in_]))
+               IsBase64(encoded_string[in_]))
         {
             char_array_4[i++] = static_cast<unsigned char>(encoded_string[in_]);
             in_++;
@@ -157,7 +157,7 @@ namespace omnisphere::utils
         for (char c : b64)
         {
             if (c == '+')
-            ret += '-';
+                ret += '-';
             else if (c == '/')
                 ret += '_';
             else if (c == '=')
@@ -176,7 +176,7 @@ namespace omnisphere::utils
         for (char c : encoded)
         {
             if (c == '-')
-            b64 += '+';
+                b64 += '+';
             else if (c == '_')
                 b64 += '/';
             else
