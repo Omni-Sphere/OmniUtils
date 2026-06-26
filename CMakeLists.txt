@@ -20,6 +20,7 @@ add_library(OmniUtils SHARED
     JWT.cpp
     ConfigDB.cpp
     Logger.cpp
+    DeviceRegistry.cpp
     Logger.hpp
 )
 
