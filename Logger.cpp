@@ -23,6 +23,37 @@ namespace attrs = boost::log::attributes;
 
 namespace omnisphere::utils
 {
+    std::atomic<bool> Logger::s_extendedLogEnabled{false};
+
+    void Logger::SetExtendedLog(bool enabled)
+    {
+        s_extendedLogEnabled = enabled;
+        std::cout << "[Logger] Extended logging state changed to: " << (enabled ? "ENABLED" : "DISABLED") << std::endl;
+    }
+
+    bool Logger::IsExtendedLogEnabled()
+    {
+        return s_extendedLogEnabled;
+    }
+
+    std::ostream& operator<<(std::ostream& strm, LogType level)
+    {
+        static const char* const strings[] =
+        {
+            "DEBUG",
+            "INFO",
+            "WARNING",
+            "ERROR"
+        };
+
+        if (static_cast<std::size_t>(level) < sizeof(strings) / sizeof(*strings))
+            strm << strings[static_cast<std::size_t>(level)];
+        else
+            strm << static_cast<int>(level);
+
+        return strm;
+    }
+
     // Define global attributes
     BOOST_LOG_ATTRIBUTE_KEYWORD(severity, "Severity", LogType)
     BOOST_LOG_ATTRIBUTE_KEYWORD(channel, "Channel", std::string)
@@ -44,56 +75,27 @@ namespace omnisphere::utils
             logging::add_common_attributes();
             logging::core::get()->add_global_attribute("Scope", attrs::named_scope());
 
-            // --- SYSTEM LOG SINK ---
-            auto systemSink = logging::add_file_log(
-                keywords::file_name = "Logs/System_%Y%m%d%H.log",
+            // --- UNIFIED LOG SINK ---
+            auto fileSink = logging::add_file_log(
+                keywords::file_name = "Logs/%Y%m%d%H.log",
                 keywords::open_mode = std::ios_base::app | std::ios_base::out,
                 keywords::time_based_rotation =
                 sinks::file::rotation_at_time_interval(boost::posix_time::hours(1)),
                 keywords::auto_flush = true);
-            systemSink->set_filter(channel == "SYSTEM");
-            systemSink->set_formatter(expr::format("%1% %2% %3%") %
-                                      expr::format_date_time<boost::posix_time::ptime>(
-                                          "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
-                                      origin % expr::smessage);
-
-            // --- DEBUG LOG SINK ---
-            auto debugSink = logging::add_file_log(
-                keywords::file_name = "Logs/Debug_%Y%m%d%H.log",
-                keywords::open_mode = std::ios_base::app | std::ios_base::out,
-                keywords::time_based_rotation =
-                sinks::file::rotation_at_time_interval(boost::posix_time::hours(1)),
-                keywords::auto_flush = true);
-            debugSink->set_filter(channel == "DEBUG");
-            debugSink->set_formatter(expr::format("%1% %2% %3%") %
-                                     expr::format_date_time<boost::posix_time::ptime>(
-                                         "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
-                                     origin % expr::smessage);
-
-            // --- GRAPHQL LOG SINK ---
-            auto gqlSink = logging::add_file_log(
-                keywords::file_name = "Logs/GraphQL_%Y%m%d%H.log",
-                keywords::open_mode = std::ios_base::app | std::ios_base::out,
-                keywords::time_based_rotation =
-                sinks::file::rotation_at_time_interval(boost::posix_time::hours(1)),
-                keywords::auto_flush = true);
-            gqlSink->set_filter(channel == "GRAPHQL");
-            gqlSink->set_formatter(expr::format("%1% %2%") %
-                                   expr::format_date_time<boost::posix_time::ptime>(
-                                       "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
-                                   expr::smessage);
+            fileSink->set_formatter(expr::format("[%1%] [%2%] [%3%] [%4%] %5%") %
+                                    expr::format_date_time<boost::posix_time::ptime>(
+                                        "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
+                                    severity % channel % origin % expr::smessage);
 
             // --- CONSOLE SINK (for development) ---
             auto consoleSink = logging::add_console_log(std::clog);
-            consoleSink->set_formatter(expr::format("%1% %2% %3%") %
+            consoleSink->set_formatter(expr::format("[%1%] [%2%] [%3%] [%4%] %5%") %
                                        expr::format_date_time<boost::posix_time::ptime>(
                                            "TimeStamp", "%H:%M:%S") %
-                                       origin % expr::smessage);
+                                       severity % channel % origin % expr::smessage);
 
             logging::core::get()->set_filter(severity >= LogType::DEBUG);
-            std::cout << "[Logger] Advanced multi-channel logging system active. "
-            "Directory: Logs/"
-            << std::endl;
+            std::cout << "[Logger] Unified single-file logging system active. Directory: Logs/" << std::endl;
         }
         catch (const std::exception &e)
         {
@@ -111,6 +113,21 @@ namespace omnisphere::utils
         << logging::add_value("Origin", className) << message;
     }
 
+    void Logger::LogInfo(const std::string &className, const std::string &message)
+    {
+        LogSystem(LogType::INFO, className, message);
+    }
+
+    void Logger::LogWarning(const std::string &className, const std::string &message)
+    {
+        LogSystem(LogType::WARNING, className, message);
+    }
+
+    void Logger::LogError(const std::string &className, const std::string &message)
+    {
+        LogSystem(LogType::ERROR, className, message);
+    }
+
     void Logger::LogDebug(const std::string &className, const std::string &message)
     {
         src::severity_channel_logger_mt<LogType, std::string> logger(
@@ -119,9 +136,27 @@ namespace omnisphere::utils
         << logging::add_value("Origin", className) << message;
     }
 
+    void Logger::LogSQL(const std::string &dbEngine, const std::string &message)
+    {
+        if (!s_extendedLogEnabled)
+        {
+            return;
+        }
+
+        src::severity_channel_logger_mt<LogType, std::string> logger(
+            keywords::channel = "SQL");
+        BOOST_LOG_SEV(logger, LogType::INFO)
+        << logging::add_value("Origin", dbEngine) << message;
+    }
+
     void Logger::LogGraphQL(const std::string &endpoint, const std::string &request,
                             const std::string &response)
     {
+        if (!s_extendedLogEnabled)
+        {
+            return;
+        }
+
         src::severity_channel_logger_mt<LogType, std::string> logger(
             keywords::channel = "GRAPHQL");
 

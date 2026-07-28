@@ -9,6 +9,8 @@
 #include <iomanip>
 #include <boost/json.hpp>
 
+#include <atomic>
+
 namespace omnisphere::utils
 {
     enum class LogType
@@ -19,9 +21,24 @@ namespace omnisphere::utils
         ERROR
     };
 
+    std::ostream& operator<<(std::ostream& strm, LogType level);
+
     class Logger
     {
+        private:
+        static std::atomic<bool> s_extendedLogEnabled;
+
         public:
+        /**
+        * @brief Set whether extended logging (SQL/GraphQL queries) is enabled.
+        */
+        static void SetExtendedLog(bool enabled);
+
+        /**
+        * @brief Check if extended logging is enabled.
+        */
+        static bool IsExtendedLogEnabled();
+
         /**
         * @brief Initialize the logging system.
         * Sets up hourly rotation (YYYYMMDDHH.log) in the Logs/ directory.
@@ -30,13 +47,28 @@ namespace omnisphere::utils
 
         /**
         * @brief Log a system event from a specific class.
-        * Format: [Timestamp] [SYSTEM] [ClassName] Message
+        * Format: [Timestamp] [Severity] [SYSTEM] [ClassName] Message
         */
         static void LogSystem(LogType type, const std::string& className, const std::string& message);
 
         /**
+        * @brief Convenience helper to log an INFO system message.
+        */
+        static void LogInfo(const std::string& className, const std::string& message);
+
+        /**
+        * @brief Convenience helper to log a WARNING system message.
+        */
+        static void LogWarning(const std::string& className, const std::string& message);
+
+        /**
+        * @brief Convenience helper to log an ERROR system message.
+        */
+        static void LogError(const std::string& className, const std::string& message);
+
+        /**
         * @brief Log a debug message.
-        * Format: [Timestamp] [DEBUG] [ClassName] Message
+        * Format: [Timestamp] [DEBUG] [DEBUG] [ClassName] Message
         */
         static void LogDebug(const std::string& className, const std::string& message);
 
@@ -45,6 +77,12 @@ namespace omnisphere::utils
         * Format: [Timestamp] [GRAPHQL] [Endpoint] Request/Response details
         */
         static void LogGraphQL(const std::string& endpoint, const std::string& request, const std::string& response);
+
+        /**
+        * @brief Log an SQL query.
+        * Format: [Timestamp] [SQL] [DbEngine] Query
+        */
+        static void LogSQL(const std::string& dbEngine, const std::string& message);
 
         /**
         * @brief Get the current stack trace as a string.
