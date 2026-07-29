@@ -29,18 +29,25 @@ target_include_directories(OmniUtils PUBLIC
     $<INSTALL_INTERFACE:include/OmniSphere/OmniUtils>
 )
 
-find_library(SODIUM_LIB sodium REQUIRED)
-find_package(Boost REQUIRED COMPONENTS json filesystem log log_setup date_time thread)
+if(ANDROID)
+    target_link_libraries(OmniUtils PUBLIC
+        sodium
+        Boost::json
+    )
+else()
+    find_library(SODIUM_LIB sodium REQUIRED)
+    find_package(Boost REQUIRED COMPONENTS json filesystem log log_setup date_time thread)
 
-target_link_libraries(OmniUtils PUBLIC
-    ${SODIUM_LIB}
-    Boost::json
-    Boost::filesystem
-    Boost::log
-    Boost::log_setup
-    Boost::date_time
-    Boost::thread
-)
+    target_link_libraries(OmniUtils PUBLIC
+        ${SODIUM_LIB}
+        Boost::json
+        Boost::filesystem
+        Boost::log
+        Boost::log_setup
+        Boost::date_time
+        Boost::thread
+    )
+endif()
 
 if(WIN32)
     set_target_properties(OmniUtils PROPERTIES
