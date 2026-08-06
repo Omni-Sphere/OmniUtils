@@ -190,6 +190,23 @@ namespace omnisphere::utils
 
             return conn;
         }
+        else if (engine == 3)
+        {
+            std::string host = server;
+            std::string port = "5432";
+            size_t colonPos = server.find(':');
+            if (colonPos != std::string::npos)
+            {
+                host = server.substr(0, colonPos);
+                port = server.substr(colonPos + 1);
+            }
+
+            std::string conn = "Driver={PostgreSQL Unicode};Server=" + host + ";Port=" + port + ";";
+            if (!database.empty()) conn += "Database=" + database + ";";
+            conn += "Uid=" + user + ";Pwd=" + password + ";";
+
+            return conn;
+        }
 
         return "";
     }
