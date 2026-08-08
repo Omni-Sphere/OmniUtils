@@ -1,0 +1,7 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Boost REQUIRED COMPONENTS json filesystem log log_setup date_time thread)
+
+include("${CMAKE_CURRENT_LIST_DIR}/OmniUtilsTargets.cmake")
+check_required_components(OmniUtils)

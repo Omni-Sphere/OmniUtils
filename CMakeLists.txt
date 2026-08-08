@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(OmniUtils LANGUAGES CXX)
 
+include(GNUInstallDirs)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -24,9 +26,11 @@ add_library(OmniUtils SHARED
     Logger.hpp
 )
 
+add_library(OmniUtils::OmniUtils ALIAS OmniUtils)
+
 target_include_directories(OmniUtils PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-    $<INSTALL_INTERFACE:include/OmniSphere/OmniUtils>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 if(ANDROID)
@@ -120,5 +124,40 @@ foreach(HDR ${PUBLIC_HEADERS})
         COMMAND ${CMAKE_COMMAND} -E copy "${HDR}" "${DEST_PATH}"
     )
 endforeach()
+
+# --- Installation & Export ---
+include(GNUInstallDirs)
+
+install(TARGETS OmniUtils
+    EXPORT OmniUtilsTargets
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h"
+    PATTERN "build" EXCLUDE
+    PATTERN ".git" EXCLUDE
+    PATTERN ".vscode" EXCLUDE
+)
+
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/OmniUtilsConfig.cmake"
+"include(CMakeFindDependencyMacro)\n"
+"find_dependency(Boost REQUIRED COMPONENTS json filesystem log log_setup date_time thread)\n"
+"include(\"\${CMAKE_CURRENT_LIST_DIR}/OmniUtilsTargets.cmake\")\n"
+)
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/OmniUtilsConfig.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/OmniUtils
+)
+
+install(EXPORT OmniUtilsTargets
+    FILE OmniUtilsTargets.cmake
+    NAMESPACE OmniUtils::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/OmniUtils
+)
 
 
