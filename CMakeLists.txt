@@ -1,6 +1,21 @@
 cmake_minimum_required(VERSION 3.16)
 project(OmniUtils LANGUAGES CXX)
 
+# --- 0. Detección de la Raíz de Proyectos (Sin usar "../") ---
+get_filename_component(PROYECTOS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}" DIRECTORY)
+
+# --- Configuración inteligente para compilación manual ---
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        set(CMAKE_INSTALL_PREFIX "/usr/lib/OmniSphere" CACHE PATH "Directorio de instalación" FORCE)
+    else()
+        set(CMAKE_INSTALL_PREFIX "${PROYECTOS_ROOT}/.omni-dev-sdk" CACHE PATH "Directorio de instalación" FORCE)
+    endif()
+endif()
+
+# Forzar la subcarpeta para aislar los headers (ej. include/OmniUtils)
+set(CMAKE_INSTALL_INCLUDEDIR "include/${PROJECT_NAME}" CACHE PATH "Directorio de cabeceras" FORCE)
+
 include(GNUInstallDirs)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -67,13 +82,14 @@ else()
     )
 endif()
 
-
 if(WIN32)
+    # Eliminamos el uso de "../bin" extrayendo el directorio padre directamente
     get_filename_component(SODIUM_LIB_DIR "${SODIUM_LIB}" DIRECTORY)
+    get_filename_component(SODIUM_PARENT_DIR "${SODIUM_LIB_DIR}" DIRECTORY)
 
     find_file(SODIUM_DLL 
         NAMES "libsodium.dll" "sodium.dll" "libsodium-26.dll"
-        HINTS "${SODIUM_LIB_DIR}/../bin" "${SODIUM_LIB_DIR}"
+        HINTS "${SODIUM_PARENT_DIR}/bin" "${SODIUM_LIB_DIR}"
     )
     
     if(SODIUM_DLL)
@@ -89,12 +105,14 @@ if(WIN32)
     set(BOOST_BIN_DIR "")
     if(DEFINED Boost_LIBRARY_DIRS)
         list(GET Boost_LIBRARY_DIRS 0 FIRST_LIB_DIR)
-        set(BOOST_BIN_DIR "${FIRST_LIB_DIR}/../bin")
+        get_filename_component(BOOST_PARENT_DIR "${FIRST_LIB_DIR}" DIRECTORY)
+        set(BOOST_BIN_DIR "${BOOST_PARENT_DIR}/bin")
     elseif(DEFINED Boost_LIBRARIES)
         list(GET Boost_LIBRARIES 0 FIRST_LIB)
         if(EXISTS "${FIRST_LIB}")
             get_filename_component(FIRST_LIB_DIR "${FIRST_LIB}" DIRECTORY)
-            set(BOOST_BIN_DIR "${FIRST_LIB_DIR}/../bin")
+            get_filename_component(BOOST_PARENT_DIR "${FIRST_LIB_DIR}" DIRECTORY)
+            set(BOOST_BIN_DIR "${BOOST_PARENT_DIR}/bin")
         endif()
     endif()
 
@@ -126,8 +144,6 @@ foreach(HDR ${PUBLIC_HEADERS})
 endforeach()
 
 # --- Installation & Export ---
-include(GNUInstallDirs)
-
 install(TARGETS OmniUtils
     EXPORT OmniUtilsTargets
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -159,5 +175,3 @@ install(EXPORT OmniUtilsTargets
     NAMESPACE OmniUtils::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/OmniUtils
 )
-
-
