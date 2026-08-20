@@ -39,6 +39,7 @@ add_library(OmniUtils SHARED
     Logger.cpp
     DeviceRegistry.cpp
     Http/HttpServer.cpp
+    Http/Router.cpp
     Logger.hpp
 )
 
