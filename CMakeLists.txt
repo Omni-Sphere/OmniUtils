@@ -38,6 +38,7 @@ add_library(OmniUtils SHARED
     ConfigDB.cpp
     Logger.cpp
     DeviceRegistry.cpp
+    Http/HttpServer.cpp
     Logger.hpp
 )
 

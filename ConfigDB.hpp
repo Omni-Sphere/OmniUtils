@@ -18,7 +18,7 @@ namespace omnisphere::utils
         void SaveConfig(const std::string &server, const std::string &user,
                         const std::string &password, const std::string &database,
                         bool trustCertificate, bool trustedConnection,
-                        int dbEngine = 1);
+                        int dbEngine = 1, unsigned short apiPort = 8080);
         std::string GetConnectionString() const;
 
         private:

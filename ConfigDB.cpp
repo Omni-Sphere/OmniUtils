@@ -52,57 +52,23 @@ namespace omnisphere::utils
         return fs::exists(_configPath);
     }
 
-    boost::json::object ConfigDB::GetConfig() const
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-
-        if (_loaded)
-        {
-            return _cache;
-        }
-
-        try
-        {
-            std::ifstream ifs(_configPath);
-
-            if (!ifs.is_open())
-            {
-                return {};
-            }
-
-            std::string content((std::istreambuf_iterator<char>(ifs)),
-                                std::istreambuf_iterator<char>());
-
-            auto value = boost::json::parse(content);
-            _cache = value.as_object();
-            _loaded = true;
-
-            return _cache;
-        }
-        catch (const std::exception &e)
-        {
-            Logger::LogSystem(LogType::ERROR, "ConfigDB", "Error reading config: " + std::string(e.what()));
-
-            return {};
-        }
-    }
-
     void ConfigDB::SaveConfig(const std::string &server, const std::string &user,
                               const std::string &password,
                               const std::string &database, bool trustCertificate,
-                              bool trustedConnection, int dbEngine)
+                              bool trustedConnection, int dbEngine, unsigned short apiPort)
     {
         std::lock_guard<std::mutex> lock(_mutex);
         try
         {
             boost::json::object config;
-            config["Server"] = server;
-            config["User"] = user;
-            config["Password"] = password;
-            config["Database"] = database;
+            config["Server"] = Base64::Encode(server);
+            config["User"] = Base64::Encode(user);
+            config["Password"] = Base64::Encode(password);
+            config["Database"] = Base64::Encode(database);
             config["TrustCertificate"] = trustCertificate;
             config["TrustedConnection"] = trustedConnection;
             config["DatabaseEngine"] = dbEngine;
+            config["APIPort"] = apiPort;
 
             std::ofstream ofs(_configPath);
 
@@ -121,94 +87,58 @@ namespace omnisphere::utils
     }
 
     void ConfigDB::createDefaultConfig()
-
-    { SaveConfig("", "", "", "OmniPOS", true, false, 1); }
-
-    std::string ConfigDB::GetConnectionString() const
-    {
-        auto config = GetConfig();
-
-        if (config.empty())
-        {
-            return "";
-        }
-
-        int engine = 1;
-
-        if (config.contains("DatabaseEngine"))
-        {
-            engine = static_cast<int>(config.at("DatabaseEngine").as_int64());
-        }
-
-        auto safeDecode = [](const std::string& input) -> std::string
-        {
-            if (input.empty()) return "";
-            try
-            {
-                return Base64::Decode(input);
-            }
-            catch (...)
-            {
-                // If it's not base64 or doesn't have our secret, it's probably plain text
-
-                return input;
-            }
-        };
-
-        std::string server = safeDecode(config.contains("Server") ? config.at("Server").as_string().c_str() : "");
-        std::string user = safeDecode(config.contains("User") ? config.at("User").as_string().c_str() : "");
-        std::string password = safeDecode(config.contains("Password") ? config.at("Password").as_string().c_str() : "");
-        std::string database = config.contains("Database") ? config.at("Database").as_string().c_str() : "OmniPOS";
-
-        if (database.empty()) database = "OmniPOS";
-        bool trustCert = config.contains("TrustCertificate") ? config.at("TrustCertificate").as_bool() : true;
-        bool trustedConn = config.contains("TrustedConnection") ? config.at("TrustedConnection").as_bool() : false;
-
-        if (engine == 1)
-        {
-            std::string conn = "Driver={ODBC Driver 18 for SQL Server};Server=" + server + ";";
-
-            if (!database.empty()) conn += "Database=" + database + ";";
-            if (trustedConn)
-            {
-                conn += "Trusted_Connection=yes;";
-            }
-            else
-            {
-                conn += "Uid=" + user + ";Pwd=" + password + ";";
-            }
-            conn += "TrustServerCertificate=" + std::string(trustCert ? "yes" : "no") + ";";
-
-            return conn;
-        }
-        else if (engine == 2)
-        {
-            std::string conn = "Driver={MySQL ODBC 9.4 Driver};Server=" + server + ";";
-
-            if (!database.empty()) conn += "Database=" + database + ";";
-            conn += "User=" + user + ";Password=" + password + ";";
-
-            return conn;
-        }
-        else if (engine == 3)
-        {
-            std::string host = server;
-            std::string port = "5432";
-            size_t colonPos = server.find(':');
-            if (colonPos != std::string::npos)
-            {
-                host = server.substr(0, colonPos);
-                port = server.substr(colonPos + 1);
-            }
-
-            std::string conn = "Driver={PostgreSQL Unicode};Server=" + host + ";Port=" + port + ";";
-            if (!database.empty()) conn += "Database=" + database + ";";
-            conn += "Uid=" + user + ";Pwd=" + password + ";";
-
-            return conn;
-        }
-
-        return "";
+    { 
+        SaveConfig("", "", "", "OmniPOS", true, false, 1, 8080); 
     }
+
+    boost::json::object ConfigDB::GetConfig() const
+{
+    std::lock_guard<std::mutex> lock(_mutex);
+
+    if (_loaded)
+    {
+        return _cache;
+    }
+
+    try
+    {
+        std::ifstream ifs(_configPath);
+        if (!ifs.is_open())
+        {
+            return {};
+        }
+
+        std::string content((std::istreambuf_iterator<char>(ifs)),
+                            std::istreambuf_iterator<char>());
+
+        auto value = boost::json::parse(content);
+        boost::json::object rawConfig = value.as_object();
+
+
+        boost::json::object cleanConfig = rawConfig;
+
+        if (rawConfig.contains("Server") && rawConfig.at("Server").is_string())
+            cleanConfig["Server"] = Base64::Decode(rawConfig.at("Server").as_string().c_str());
+            
+        if (rawConfig.contains("User") && rawConfig.at("User").is_string())
+            cleanConfig["User"] = Base64::Decode(rawConfig.at("User").as_string().c_str());
+            
+        if (rawConfig.contains("Password") && rawConfig.at("Password").is_string())
+            cleanConfig["Password"] = Base64::Decode(rawConfig.at("Password").as_string().c_str());
+            
+        if (rawConfig.contains("Database") && rawConfig.at("Database").is_string())
+            cleanConfig["Database"] = Base64::Decode(rawConfig.at("Database").as_string().c_str());
+
+        _cache = cleanConfig;
+        _loaded = true;
+
+        return _cache;
+    }
+    catch (const std::exception &e)
+    {
+        Logger::LogSystem(LogType::ERROR, "ConfigDB", "Error reading config: " + std::string(e.what()));
+        return {};
+    }
+}
 
 } // namespace omnisphere::utils
