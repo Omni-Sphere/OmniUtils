@@ -1,5 +1,6 @@
 #include "ConfigDB.hpp"
 #include "Base64.hpp"
+#include "PathUtils.hpp"
 #include <boost/filesystem.hpp>
 #include <fstream>
 #include <iostream>
@@ -11,8 +12,9 @@ namespace omnisphere::utils
 
     ConfigDB::ConfigDB()
     {
-        _configDir = "Config";
-        _configPath = _configDir + "/ConfigDB.json";
+        std::filesystem::path exeDir = GetExecutableDir();
+        _configDir = (exeDir / "Config").string();
+        _configPath = (exeDir / "Config" / "ConfigDB.json").string();
     }
 
     void ConfigDB::Initialize()

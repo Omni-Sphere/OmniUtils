@@ -16,6 +16,7 @@
 #include <cctype>
 
 #include "JWT.hpp"
+#include "../Logger.hpp"
 
 namespace beast = boost::beast;
 namespace bhttp = boost::beast::http;
@@ -217,12 +218,42 @@ namespace omnisphere::net
     void HttpServer::Start()
     {
         auto address = asio::ip::make_address(pImpl->host);
-        pImpl->acceptor = std::make_unique<tcp::acceptor>(pImpl->ioc, tcp::endpoint{address, pImpl->port});
+        tcp::endpoint endpoint{address, pImpl->port};
+
+        pImpl->acceptor = std::make_unique<tcp::acceptor>(pImpl->ioc);
+
+        beast::error_code ec;
+        pImpl->acceptor->open(endpoint.protocol(), ec);
+        if (ec)
+        {
+            std::string errStr = "Failed to open socket on " + pImpl->host + ":" + std::to_string(pImpl->port) + " (" + ec.message() + ")";
+            omnisphere::utils::Logger::LogError("HttpServer", errStr);
+            throw std::runtime_error(errStr);
+        }
+
+        pImpl->acceptor->set_option(asio::socket_base::reuse_address(true), ec);
+
+        pImpl->acceptor->bind(endpoint, ec);
+        if (ec)
+        {
+            std::string errStr = "Cannot bind to " + pImpl->host + ":" + std::to_string(pImpl->port) + " - Port is already in use by another process or permission denied. (" + ec.message() + ")";
+            omnisphere::utils::Logger::LogError("HttpServer", errStr);
+            throw std::runtime_error(errStr);
+        }
+
+        pImpl->acceptor->listen(asio::socket_base::max_listen_connections, ec);
+        if (ec)
+        {
+            std::string errStr = "Failed to listen on " + pImpl->host + ":" + std::to_string(pImpl->port) + " (" + ec.message() + ")";
+            omnisphere::utils::Logger::LogError("HttpServer", errStr);
+            throw std::runtime_error(errStr);
+        }
+
         pImpl->workerPool = std::make_unique<asio::thread_pool>(pImpl->threadPoolSize);
         pImpl->isRunning = true;
 
-        std::cout << "[OmniNet::HttpServer] Router HTTP Server listening on http://" << pImpl->host << ":" << pImpl->port
-                  << " (Thread Pool: " << pImpl->threadPoolSize << " threads)" << std::endl;
+        std::cout << "\033[32m[OmniNet::HttpServer] Router HTTP Server listening on http://" << pImpl->host << ":" << pImpl->port
+                  << " (Thread Pool: " << pImpl->threadPoolSize << " threads)\033[0m" << std::endl;
 
         pImpl->acceptorThread = std::thread([this]() {
             pImpl->AcceptLoop();

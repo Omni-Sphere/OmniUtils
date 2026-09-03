@@ -1,4 +1,8 @@
 #include "Hasher.hpp"
+#include <openssl/hmac.h>
+#include <openssl/evp.h>
+#include <iomanip>
+#include <sstream>
 
 namespace omnisphere::utils
 {
@@ -64,4 +68,20 @@ namespace omnisphere::utils
 
         return hash;
     };
+
+    std::string Hasher::HmacSha256(const std::string& data, const std::string& key)
+    {
+        unsigned char hash[EVP_MAX_MD_SIZE];
+        unsigned int len = 0;
+        HMAC(EVP_sha256(), key.c_str(), static_cast<int>(key.length()),
+             reinterpret_cast<const unsigned char*>(data.c_str()), data.length(),
+             hash, &len);
+
+        std::stringstream ss;
+        for (unsigned int i = 0; i < len; ++i)
+        {
+            ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+        }
+        return ss.str();
+    }
 }

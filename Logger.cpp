@@ -1,5 +1,6 @@
 #define BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED
 #include "Logger.hpp"
+#include "PathUtils.hpp"
 #include <boost/stacktrace.hpp>
 #include <boost/log/attributes.hpp>
 #include <boost/log/core.hpp>
@@ -59,12 +60,36 @@ namespace omnisphere::utils
     BOOST_LOG_ATTRIBUTE_KEYWORD(channel, "Channel", std::string)
     BOOST_LOG_ATTRIBUTE_KEYWORD(origin, "Origin", std::string)
 
+    static std::string g_currentLogDir;
+    static bool g_loggerInitialized = false;
+
+    static void CheckLogFileExists()
+    {
+        if (!g_loggerInitialized || g_currentLogDir.empty()) return;
+
+        std::time_t t = std::time(nullptr);
+        std::tm tm = *std::localtime(&t);
+        char buf[64];
+        std::strftime(buf, sizeof(buf), "%Y%m%d%H.log", &tm);
+        std::filesystem::path currentLogFile = std::filesystem::path(g_currentLogDir) / buf;
+
+        if (!std::filesystem::exists(currentLogFile))
+        {
+            logging::core::get()->remove_all_sinks();
+            g_loggerInitialized = false;
+            Logger::Init();
+        }
+    }
+
     void Logger::Init()
     {
+        if (g_loggerInitialized) return;
         try
         {
-            // Ensure Logs directory exists
-            std::filesystem::path logDir = "Logs";
+            // Ensure Logs directory exists relative to binary executable
+            std::filesystem::path exeDir = GetExecutableDir();
+            std::filesystem::path logDir = exeDir / "Logs";
+            g_currentLogDir = logDir.string();
 
             if (!std::filesystem::exists(logDir))
             {
@@ -75,9 +100,10 @@ namespace omnisphere::utils
             logging::add_common_attributes();
             logging::core::get()->add_global_attribute("Scope", attrs::named_scope());
 
-            // --- UNIFIED LOG SINK ---
+            // --- UNIFIED LOG SINK (File log - plain text) ---
+            std::string logFileNamePattern = (logDir / "%Y%m%d%H.log").string();
             auto fileSink = logging::add_file_log(
-                keywords::file_name = "Logs/%Y%m%d%H.log",
+                keywords::file_name = logFileNamePattern,
                 keywords::open_mode = std::ios_base::app | std::ios_base::out,
                 keywords::time_based_rotation =
                 sinks::file::rotation_at_time_interval(boost::posix_time::hours(1)),
@@ -87,15 +113,57 @@ namespace omnisphere::utils
                                         "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
                                     severity % channel % origin % expr::smessage);
 
-            // --- CONSOLE SINK (for development) ---
+            // --- CONSOLE SINK (With ANSI Colors) ---
             auto consoleSink = logging::add_console_log(std::clog);
-            consoleSink->set_formatter(expr::format("[%1%] [%2%] [%3%] [%4%] %5%") %
-                                       expr::format_date_time<boost::posix_time::ptime>(
-                                           "TimeStamp", "%H:%M:%S") %
-                                       severity % channel % origin % expr::smessage);
+            consoleSink->set_formatter([](logging::record_view const& rec, logging::formatting_ostream& strm) {
+                auto timeStamp = logging::extract<boost::posix_time::ptime>("TimeStamp", rec);
+                auto sev = logging::extract<LogType>("Severity", rec);
+                auto ch = logging::extract<std::string>("Channel", rec);
+                auto orig = logging::extract<std::string>("Origin", rec);
+                auto msg = rec[expr::smessage];
+
+                // Timestamp
+                if (timeStamp) {
+                    strm << "\033[90m[" << boost::posix_time::to_simple_string(timeStamp.get().time_of_day()) << "]\033[0m ";
+                }
+
+                // Severity
+                if (sev) {
+                    switch (sev.get()) {
+                        case LogType::DEBUG:
+                            strm << "\033[36m[DEBUG]\033[0m ";   // Cyan
+                            break;
+                        case LogType::INFO:
+                            strm << "\033[32m[INFO]\033[0m ";    // Green
+                            break;
+                        case LogType::WARNING:
+                            strm << "\033[33m[WARNING]\033[0m "; // Yellow
+                            break;
+                        case LogType::ERROR:
+                            strm << "\033[1;31m[ERROR]\033[0m "; // Bold Red
+                            break;
+                    }
+                }
+
+                // Channel
+                if (ch) {
+                    strm << "\033[35m[" << ch.get() << "]\033[0m "; // Magenta
+                }
+
+                // Origin
+                if (orig) {
+                    strm << "\033[34m[" << orig.get() << "]\033[0m "; // Blue
+                }
+
+                // Message
+                if (msg) {
+                    strm << msg.get();
+                }
+            });
 
             logging::core::get()->set_filter(severity >= LogType::DEBUG);
-            std::cout << "[Logger] Unified single-file logging system active. Directory: Logs/" << std::endl;
+            g_loggerInitialized = true;
+            std::cout << "\033[32m[Logger] Unified single-file logging system active. Directory: " << logDir.string() << "\033[0m" << std::endl;
         }
         catch (const std::exception &e)
         {
@@ -107,6 +175,7 @@ namespace omnisphere::utils
     void Logger::LogSystem(LogType type, const std::string &className,
                            const std::string &message)
     {
+        CheckLogFileExists();
         src::severity_channel_logger_mt<LogType, std::string> logger(
             keywords::channel = "SYSTEM");
         BOOST_LOG_SEV(logger, type)
@@ -130,6 +199,7 @@ namespace omnisphere::utils
 
     void Logger::LogDebug(const std::string &className, const std::string &message)
     {
+        CheckLogFileExists();
         src::severity_channel_logger_mt<LogType, std::string> logger(
             keywords::channel = "DEBUG");
         BOOST_LOG_SEV(logger, LogType::DEBUG)
@@ -138,6 +208,7 @@ namespace omnisphere::utils
 
     void Logger::LogSQL(const std::string &dbEngine, const std::string &message)
     {
+        CheckLogFileExists();
         if (!s_extendedLogEnabled)
         {
             return;
@@ -152,6 +223,28 @@ namespace omnisphere::utils
     void Logger::LogGraphQL(const std::string &endpoint, const std::string &request,
                             const std::string &response)
     {
+        CheckLogFileExists();
+        bool hasErrors = false;
+        std::string prettyRequest = request;
+        std::string prettyResponse = response;
+
+        try
+        {
+            auto resJson = boost::json::parse(response);
+            prettyResponse = prettyPrintJson(resJson, 1);
+            if (resJson.is_object() && resJson.as_object().contains("errors"))
+            {
+                hasErrors = true;
+            }
+        }
+        catch (...) {}
+
+        // If there are errors in response, ALWAYS log as ERROR regardless of ExtendedLog state
+        if (hasErrors)
+        {
+            LogError("GraphQL", "Error in GraphQL request on endpoint '" + endpoint + "':\n" + prettyResponse);
+        }
+
         if (!s_extendedLogEnabled)
         {
             return;
@@ -159,9 +252,6 @@ namespace omnisphere::utils
 
         src::severity_channel_logger_mt<LogType, std::string> logger(
             keywords::channel = "GRAPHQL");
-
-        std::string prettyRequest = request;
-        std::string prettyResponse = response;
 
         try
         {
@@ -228,13 +318,6 @@ namespace omnisphere::utils
             {
                 prettyRequest = entityName + "\n" + prettyRequest;
             }
-        }
-        catch (...) {}
-
-        try
-        {
-            auto resJson = boost::json::parse(response);
-            prettyResponse = prettyPrintJson(resJson, 1);
         }
         catch (...) {}
 

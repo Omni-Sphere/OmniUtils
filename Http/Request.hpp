@@ -52,6 +52,23 @@ namespace omnisphere::net
         {
             auto it = headers.find(key);
             if (it != headers.end()) return it->second;
+
+            for (const auto& [k, v] : headers)
+            {
+                if (k.size() == key.size())
+                {
+                    bool match = true;
+                    for (size_t i = 0; i < key.size(); ++i)
+                    {
+                        if (std::tolower(static_cast<unsigned char>(k[i])) != std::tolower(static_cast<unsigned char>(key[i])))
+                        {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (match) return v;
+                }
+            }
             return "";
         }
 
