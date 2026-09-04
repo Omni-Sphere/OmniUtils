@@ -145,9 +145,13 @@ namespace omnisphere::net
                 auto claims = omnisphere::utils::JWT::ValidateToken(token);
                 req.SetUserClaims(claims);
             }
+            catch (const std::exception& e)
+            {
+                std::cerr << "[OmniUtils Router Auth] Token validation failed: " << e.what() << std::endl;
+            }
             catch (...)
             {
-                // Token inválido o expirado
+                std::cerr << "[OmniUtils Router Auth] Unknown exception during token validation" << std::endl;
             }
         }
 
@@ -189,6 +193,7 @@ namespace omnisphere::net
                                 return Response(401, "application/json", R"({"error":"Unauthorized: Missing or invalid JWT Bearer token."})");
                             }
 
+                            /* Future RBAC Implementation:
                             if (!route.requiredRoles.empty())
                             {
                                 std::string userRole = req.UserRole();
@@ -202,6 +207,7 @@ namespace omnisphere::net
                                     return Response(403, "application/json", R"({"error":"Forbidden: Insufficient role privileges."})");
                                 }
                             }
+                            */
                         }
                     }
 

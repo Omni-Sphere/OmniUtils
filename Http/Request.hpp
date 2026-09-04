@@ -32,21 +32,24 @@ namespace omnisphere::net
 
         std::string UserCode() const
         {
-            if (userClaims.contains("code") && userClaims.at("code").is_string())
-                return std::string(userClaims.at("code").as_string());
-            if (userClaims.contains("userCode") && userClaims.at("userCode").is_string())
-                return std::string(userClaims.at("userCode").as_string());
             if (userClaims.contains("sub") && userClaims.at("sub").is_string())
                 return std::string(userClaims.at("sub").as_string());
+            if (userClaims.contains("userCode") && userClaims.at("userCode").is_string())
+                return std::string(userClaims.at("userCode").as_string());
+            if (userClaims.contains("UserCode") && userClaims.at("UserCode").is_string())
+                return std::string(userClaims.at("UserCode").as_string());
             return "";
         }
 
+        // Future RBAC Implementation:
+        /*
         std::string UserRole() const
         {
             if (userClaims.contains("role") && userClaims.at("role").is_string())
                 return std::string(userClaims.at("role").as_string());
             return "";
         }
+        */
 
         std::string Header(const std::string& key) const
         {
