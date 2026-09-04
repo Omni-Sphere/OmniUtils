@@ -11,6 +11,11 @@
 
 #include <atomic>
 
+namespace omnisphere::net
+{
+    class Request;
+}
+
 namespace omnisphere::utils
 {
     enum class LogType
@@ -71,6 +76,11 @@ namespace omnisphere::utils
         * Format: [Timestamp] [DEBUG] [DEBUG] [ClassName] Message
         */
         static void LogDebug(const std::string& className, const std::string& message);
+
+        /**
+        * @brief Log a full HTTP Request with Request ID, Client context, headers, and body.
+        */
+        static void LogHttpRequest(const omnisphere::net::Request& req);
 
         /**
         * @brief Log a GraphQL transaction.

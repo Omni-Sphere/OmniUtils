@@ -1,6 +1,8 @@
 #define BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED
 #include "Logger.hpp"
 #include "PathUtils.hpp"
+#include "Http/Request.hpp"
+#include <algorithm>
 #include <boost/stacktrace.hpp>
 #include <boost/log/attributes.hpp>
 #include <boost/log/core.hpp>
@@ -204,6 +206,49 @@ namespace omnisphere::utils
             keywords::channel = "DEBUG");
         BOOST_LOG_SEV(logger, LogType::DEBUG)
         << logging::add_value("Origin", className) << message;
+    }
+
+    void Logger::LogHttpRequest(const omnisphere::net::Request& req)
+    {
+        CheckLogFileExists();
+        src::severity_channel_logger_mt<LogType, std::string> logger(keywords::channel = "HTTP_REQ");
+
+        std::string reqLog = req.TraceContext() + " " + req.Method() + " " + req.Target();
+
+        if (!req.QueryParams().empty())
+        {
+            reqLog += "\n  [Query Params]:";
+            for (const auto& [k, v] : req.QueryParams())
+            {
+                reqLog += "\n    " + k + " = " + v;
+            }
+        }
+
+        if (!req.Headers().empty())
+        {
+            reqLog += "\n  [Headers]:";
+            for (const auto& [k, v] : req.Headers())
+            {
+                std::string lowerK = k;
+                std::transform(lowerK.begin(), lowerK.end(), lowerK.begin(), [](unsigned char c){ return std::tolower(c); });
+                if (lowerK == "authorization" && v.length() > 15)
+                {
+                    reqLog += "\n    " + k + ": " + v.substr(0, 15) + "... [REDACTED]";
+                }
+                else
+                {
+                    reqLog += "\n    " + k + ": " + v;
+                }
+            }
+        }
+
+        if (!req.Body().empty())
+        {
+            reqLog += "\n  [Body Payload]:\n" + req.Body();
+        }
+
+        BOOST_LOG_SEV(logger, LogType::INFO)
+            << logging::add_value("Origin", req.Target()) << reqLog;
     }
 
     void Logger::LogSQL(const std::string &dbEngine, const std::string &message)

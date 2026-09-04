@@ -4,6 +4,8 @@
 #include <unordered_map>
 #include <map>
 #include <boost/json.hpp>
+#include <chrono>
+#include <atomic>
 
 namespace omnisphere::net
 {
@@ -29,6 +31,40 @@ namespace omnisphere::net
         const std::string& Body() const { return body; }
         bool IsAuthenticated() const { return isAuthenticated; }
         const boost::json::object& UserClaims() const { return userClaims; }
+        const std::map<std::string, std::string>& Headers() const { return headers; }
+        const std::unordered_map<std::string, std::string>& QueryParams() const { return queryParams; }
+
+        std::string RequestId() const
+        {
+            std::string reqHeader = Header("X-Request-ID");
+            if (reqHeader.empty()) reqHeader = Header("X-Correlation-ID");
+            if (!reqHeader.empty()) return reqHeader;
+
+            if (generatedRequestId.empty())
+            {
+                static std::atomic<uint64_t> s_counter{1000};
+                auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                generatedRequestId = "req_" + std::to_string(now) + "_" + std::to_string(++s_counter);
+            }
+            return generatedRequestId;
+        }
+
+        std::string ClientId() const
+        {
+            if (userClaims.contains("tenantId") && userClaims.at("tenantId").is_string())
+                return std::string(userClaims.at("tenantId").as_string());
+            if (userClaims.contains("client") && userClaims.at("client").is_string())
+                return std::string(userClaims.at("client").as_string());
+            std::string user = UserCode();
+            if (!user.empty()) return user;
+            return "DEFAULT";
+        }
+
+        std::string TraceContext() const
+        {
+            return "[ReqID: " + RequestId() + "] [Client: " + ClientId() + "]";
+        }
 
         std::string UserCode() const
         {
@@ -108,5 +144,6 @@ namespace omnisphere::net
         std::unordered_map<std::string, std::string> queryParams;
         boost::json::object userClaims;
         bool isAuthenticated = false;
+        mutable std::string generatedRequestId;
     };
 } // namespace omnisphere::net
