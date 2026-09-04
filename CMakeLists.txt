@@ -52,6 +52,7 @@ add_library(OmniUtils::OmniUtils ALIAS OmniUtils)
 
 target_include_directories(OmniUtils PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${OMNI_BASE_DIR}/include/OmniSphere>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
