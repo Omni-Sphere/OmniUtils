@@ -1,5 +1,6 @@
 #include "Router.hpp"
 #include "JWT.hpp"
+#include "Logger.hpp"
 #include <sstream>
 #include <iostream>
 #include <algorithm>
@@ -85,21 +86,32 @@ namespace omnisphere::net
             }
         }
 
-        if (!pattern.empty() && pattern.back() == '*')
+        // Normalize trailing slashes for path matching
+        if (pathOnly.length() > 1 && pathOnly.back() == '/')
         {
-            std::string prefix = pattern.substr(0, pattern.size() - 1);
+            pathOnly.pop_back();
+        }
+        std::string normPattern = pattern;
+        if (normPattern.length() > 1 && normPattern.back() == '/')
+        {
+            normPattern.pop_back();
+        }
+
+        if (!normPattern.empty() && normPattern.back() == '*')
+        {
+            std::string prefix = normPattern.substr(0, normPattern.size() - 1);
             if (pathOnly.rfind(prefix, 0) == 0)
             {
                 return true;
             }
         }
 
-        if (pattern == pathOnly)
+        if (normPattern == pathOnly)
         {
             return true;
         }
 
-        std::stringstream pStream(pattern);
+        std::stringstream pStream(normPattern);
         std::stringstream tStream(pathOnly);
         std::string pSeg, tSeg;
 
@@ -122,6 +134,9 @@ namespace omnisphere::net
 
     Response Router::Dispatch(Request& req) const
     {
+        // 0. Registrar de forma automática la petición HTTP recibida en Logger
+        omnisphere::utils::Logger::LogHttpRequest(req);
+
         // 1. Extracción e inspección automática de JWT Token gestionada nativamente por OmniUtils
         std::string authHeader = req.Header("Authorization");
         std::string token;
@@ -219,9 +234,11 @@ namespace omnisphere::net
 
         if (pathMatched)
         {
+            omnisphere::utils::Logger::LogWarning("Router", req.TraceContext() + " HTTP 405 Method Not Allowed: " + req.Method() + " " + req.Target());
             return Response::MethodNotAllowed(R"({"error":"405 Method Not Allowed"})");
         }
 
+        omnisphere::utils::Logger::LogWarning("Router", req.TraceContext() + " HTTP 404 Not Found: " + req.Method() + " " + req.Target());
         return Response::NotFound(R"({"error":"404 Not Found"})");
     }
 } // namespace omnisphere::net
