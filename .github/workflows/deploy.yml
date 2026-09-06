@@ -1,70 +1,77 @@
-name: CD - OmniSphere SDK Core Library
+name: CD - OmniSphere SDK (Utils Library)
 
 on:
   push:
     branches:
-      - dev
-      - test
-      - master
+      - main
+
+concurrency:
+  group: omnisphere-sdk-deploy
+  cancel-in-progress: true
 
 jobs:
   deploy-sdk:
-    name: Rebuild SDK Base & Deploy API by Branch
+    name: Rebuild SDK Base & Deploy API (main)
     runs-on: ubuntu-latest
+    env:
+      SSH_KEY_VAL: ${{ secrets.SSH_KEY }}
+      SSH_PASS_VAL: ${{ secrets.SSH_PASSWORD }}
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Rebuild SDK Base Image & Deploy via SSH
+      - name: Rebuild SDK Base Image & Deploy via SSH (Key Auth)
+        if: ${{ env.SSH_KEY_VAL != '' }}
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
-          port: ${{ secrets.SSH_PORT }}
+          port: ${{ secrets.SSH_PORT || '2202' }}
           username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASSWORD }}
-          script: |
-            BRANCH="${{ github.ref_name }}"
-            echo "=================================================="
-            echo " Rebuilding SDK Base for Branch: $BRANCH"
-            echo "=================================================="
+          key: ${{ secrets.SSH_KEY }}
+          script: &deploy_script |
+            set -e
 
-            if [ "$BRANCH" == "dev" ]; then
-                ENV_SUFFIX="dev"
-            elif [ "$BRANCH" == "test" ]; then
-                ENV_SUFFIX="test"
-            elif [ "$BRANCH" == "master" ]; then
-                ENV_SUFFIX="prod"
-            else
-                ENV_SUFFIX="dev"
-            fi
-
-            CONTAINER_NAME="omniroute-api-${ENV_SUFFIX}"
-            IMAGE_NAME="omniroute-api-${ENV_SUFFIX}"
+            echo "=================================================="
+            echo " Rebuilding SDK Base Image for Branch: main"
+            echo "=================================================="
 
             cd /home/arodriguez/Proyectos
+
+            echo "--> Pulling latest changes in all SDK library repositories..."
             for d in OmniUtils OmniData OmniCore OmniERP OmniRoute OmniGraph; do
               if [ -d "$d/.git" ]; then
-                (cd "$d" && git pull) || true
+                (cd "$d" && git checkout main && git pull origin main) || true
               fi
             done
 
             echo "=================================================="
-            echo " 1. Rebuilding Base SDK Image (omnisphere-sdk)"
+            echo " 1. Rebuilding Base SDK Image (localhost/omnisphere-sdk:latest)"
             echo "=================================================="
-            podman build -t omnisphere-sdk -f Dockerfile .
+            podman build -t localhost/omnisphere-sdk:latest -f Dockerfile .
+            podman tag localhost/omnisphere-sdk:latest omnisphere-sdk:latest || true
 
             echo "=================================================="
-            echo " 2. Rebuilding OmniRouteAPI Image ($IMAGE_NAME)"
+            echo " 2. Rebuilding OmniRouteAPI Image (omniroute-api-dev)"
             echo "=================================================="
-            (cd /home/arodriguez/Proyectos/OmniRouteAPI && podman build -t "$IMAGE_NAME" -f Dockerfile .)
+            (cd /home/arodriguez/Proyectos/OmniRouteAPI && podman build -t omniroute-api-dev -f Dockerfile .)
 
             echo "=================================================="
-            echo " 3. Restarting Container ($CONTAINER_NAME) & Nginx Proxy"
+            echo " 3. Restarting Container (omniroute-api-dev) & Nginx Proxy"
             echo "=================================================="
-            (podman restart "$CONTAINER_NAME" || podman pod restart --all)
+            (podman restart omniroute-api-dev || podman restart omniroute-api-prod || podman pod restart --all)
             (podman restart nginx-proxy || podman restart nginx || true)
 
             echo "=================================================="
-            echo " SDK Core ($ENV_SUFFIX) Deployment Complete!"
+            echo " SDK & OmniRouteAPI Deployment Complete!"
             echo "=================================================="
+
+      - name: Rebuild SDK Base Image & Deploy via SSH (Password Auth)
+        if: ${{ env.SSH_KEY_VAL == '' }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT || '2202' }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          script: *deploy_script
