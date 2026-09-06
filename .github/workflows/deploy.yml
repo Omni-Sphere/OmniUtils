@@ -1,0 +1,70 @@
+name: CD - OmniSphere SDK Core Library
+
+on:
+  push:
+    branches:
+      - dev
+      - test
+      - master
+
+jobs:
+  deploy-sdk:
+    name: Rebuild SDK Base & Deploy API by Branch
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Rebuild SDK Base Image & Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          script: |
+            BRANCH="${{ github.ref_name }}"
+            echo "=================================================="
+            echo " Rebuilding SDK Base for Branch: $BRANCH"
+            echo "=================================================="
+
+            if [ "$BRANCH" == "dev" ]; then
+                ENV_SUFFIX="dev"
+            elif [ "$BRANCH" == "test" ]; then
+                ENV_SUFFIX="test"
+            elif [ "$BRANCH" == "master" ]; then
+                ENV_SUFFIX="prod"
+            else
+                ENV_SUFFIX="dev"
+            fi
+
+            CONTAINER_NAME="omniroute-api-${ENV_SUFFIX}"
+            IMAGE_NAME="omniroute-api-${ENV_SUFFIX}"
+
+            cd /home/arodriguez/Proyectos
+            for d in OmniUtils OmniData OmniCore OmniERP OmniRoute OmniGraph; do
+              if [ -d "$d/.git" ]; then
+                (cd "$d" && git pull) || true
+              fi
+            done
+
+            echo "=================================================="
+            echo " 1. Rebuilding Base SDK Image (omnisphere-sdk)"
+            echo "=================================================="
+            podman build -t omnisphere-sdk -f Dockerfile .
+
+            echo "=================================================="
+            echo " 2. Rebuilding OmniRouteAPI Image ($IMAGE_NAME)"
+            echo "=================================================="
+            (cd /home/arodriguez/Proyectos/OmniRouteAPI && podman build -t "$IMAGE_NAME" -f Dockerfile .)
+
+            echo "=================================================="
+            echo " 3. Restarting Container ($CONTAINER_NAME) & Nginx Proxy"
+            echo "=================================================="
+            (podman restart "$CONTAINER_NAME" || podman pod restart --all)
+            (podman restart nginx-proxy || podman restart nginx || true)
+
+            echo "=================================================="
+            echo " SDK Core ($ENV_SUFFIX) Deployment Complete!"
+            echo "=================================================="
