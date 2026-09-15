@@ -43,6 +43,7 @@ add_library(OmniUtils SHARED
     ConfigDB.cpp
     Logger.cpp
     DeviceRegistry.cpp
+    DomainTaskDispatcher.cpp
     Http/HttpServer.cpp
     Http/Router.cpp
     Logger.hpp
