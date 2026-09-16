@@ -26,7 +26,7 @@ namespace attrs = boost::log::attributes;
 
 namespace omnisphere::utils
 {
-    std::atomic<bool> Logger::s_extendedLogEnabled{false};
+    std::atomic<bool> Logger::s_extendedLogEnabled{true};
 
     void Logger::SetExtendedLog(bool enabled)
     {
