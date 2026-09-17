@@ -60,131 +60,168 @@ namespace omnisphere::net
 
         void HandleSession(tcp::socket socket)
         {
-            beast::error_code ec;
-            beast::flat_buffer buffer;
-            beast::tcp_stream stream(std::move(socket));
-
-            for (;;)
+            try
             {
-                stream.expires_after(std::chrono::seconds(30));
+                beast::error_code ec;
+                beast::flat_buffer buffer;
+                beast::tcp_stream stream(std::move(socket));
 
-                bhttp::request_parser<bhttp::string_body> parser;
-                parser.body_limit(maxBodySize);
+                boost::system::error_code ep_ec;
+                auto remoteEp = stream.socket().remote_endpoint(ep_ec);
+                std::string clientIp = !ep_ec ? remoteEp.address().to_string() : "unknown";
 
-                bhttp::read(stream, buffer, parser, ec);
-
-                bhttp::response<bhttp::string_body> res;
-
-                if (ec == bhttp::error::body_limit || ec == bhttp::error::buffer_overflow)
+                for (;;)
                 {
-                    res.result(bhttp::status::payload_too_large);
-                    res.set(bhttp::field::content_type, "application/json");
-                    res.body() = R"({"errors":[{"message":"Payload too large. Request body exceeds maximum allowed size."}]})";
-                    res.prepare_payload();
+                    stream.expires_after(std::chrono::seconds(30));
+
+                    bhttp::request_parser<bhttp::string_body> parser;
+                    parser.body_limit(maxBodySize);
+
+                    bhttp::read(stream, buffer, parser, ec);
+
+                    bhttp::response<bhttp::string_body> res;
+
+                    if (ec == bhttp::error::body_limit || ec == bhttp::error::buffer_overflow)
+                    {
+                        res.result(bhttp::status::payload_too_large);
+                        res.set(bhttp::field::content_type, "application/json");
+                        res.body() = R"({"errors":[{"message":"Payload too large. Request body exceeds maximum allowed size."}]})";
+                        res.prepare_payload();
+                        bhttp::write(stream, res, ec);
+                        break;
+                    }
+                    
+                    if (ec)
+                    {
+                        if (ec != bhttp::error::end_of_stream && ec != beast::error::timeout)
+                        {
+                            omnisphere::utils::Logger::LogWarning("HttpServer", "HTTP read error from [" + clientIp + "]: " + ec.message());
+                        }
+                        break;
+                    }
+
+                    auto const& req = parser.get();
+
+                    res.version(req.version());
+                    res.keep_alive(req.keep_alive());
+
+                    CorsMiddleware::ApplySecurityHeaders(res);
+
+                    std::string method = std::string(req.method_string());
+                    std::string target = std::string(req.target());
+
+                    if (req.method() == bhttp::verb::options)
+                    {
+                        res.result(bhttp::status::no_content);
+                        res.prepare_payload();
+                    }
+                    else if (router)
+                    {
+                        try
+                        {
+                            Request netReq;
+                            netReq.SetMethod(method);
+                            netReq.SetTarget(target);
+                            netReq.SetBody(req.body());
+
+                            for (auto const& field : req)
+                            {
+                                netReq.SetHeader(std::string(field.name_string()), std::string(field.value()));
+                            }
+
+                            Response netRes = router->Dispatch(netReq);
+
+                            res.result(static_cast<bhttp::status>(netRes.StatusCode()));
+                            res.set(bhttp::field::content_type, netRes.ContentType());
+                            for (const auto& [hdrK, hdrV] : netRes.Headers())
+                            {
+                                res.set(hdrK, hdrV);
+                            }
+                            res.body() = netRes.Body();
+                            res.prepare_payload();
+                        }
+                        catch (const std::exception& ex)
+                        {
+                            omnisphere::utils::Logger::LogError("HttpServer", "Exception in Router::Dispatch (" + method + " " + target + "): " + ex.what());
+                            res.result(bhttp::status::internal_server_error);
+                            res.set(bhttp::field::content_type, "application/json");
+                            res.body() = std::string(R"({"errors":[{"message":"Internal server error: ")") + ex.what() + R"("}]})";
+                            res.prepare_payload();
+                        }
+                    }
+                    else if (target == "/graphql" && req.method() == bhttp::verb::post)
+                    {
+                        try
+                        {
+                            auto parsed = boost::json::parse(req.body());
+                            std::string query;
+                            boost::json::value variables = nullptr;
+
+                            if (parsed.is_object())
+                            {
+                                auto const& obj = parsed.as_object();
+                                if (obj.contains("query") && obj.at("query").is_string())
+                                {
+                                    query = std::string(obj.at("query").as_string());
+                                }
+                                if (obj.contains("variables"))
+                                {
+                                    variables = obj.at("variables");
+                                }
+                            }
+
+                            boost::json::value resultVal;
+                            if (gqlHandler)
+                            {
+                                resultVal = gqlHandler(query, variables);
+                            }
+
+                            res.result(bhttp::status::ok);
+                            res.set(bhttp::field::content_type, "application/json");
+                            res.body() = boost::json::serialize(resultVal);
+                            res.prepare_payload();
+                        }
+                        catch (const std::exception& e)
+                        {
+                            omnisphere::utils::Logger::LogError("HttpServer", "Exception in GraphQL handler: " + std::string(e.what()));
+                            res.result(bhttp::status::internal_server_error);
+                            res.set(bhttp::field::content_type, "application/json");
+                            res.body() = R"({"errors":[{"message":"Internal server error"}]})";
+                            res.prepare_payload();
+                        }
+                    }
+                    else
+                    {
+                        res.result(bhttp::status::not_found);
+                        res.set(bhttp::field::content_type, "application/json");
+                        res.body() = R"({"error":"404 Not Found"})";
+                        res.prepare_payload();
+                    }
+
+                    stream.expires_after(std::chrono::seconds(30));
                     bhttp::write(stream, res, ec);
-                    break;
-                }
-                
-                if (ec == bhttp::error::end_of_stream || ec == beast::error::timeout || ec)
-                {
-                    break;
-                }
-
-                auto const& req = parser.get();
-
-                res.version(req.version());
-                res.keep_alive(req.keep_alive());
-
-                CorsMiddleware::ApplySecurityHeaders(res);
-
-                std::string clientIp = stream.socket().remote_endpoint().address().to_string();
-                std::string method = std::string(req.method_string());
-                std::string target = std::string(req.target());
-
-                if (req.method() == bhttp::verb::options)
-                {
-                    res.result(bhttp::status::no_content);
-                    res.prepare_payload();
-                }
-                else if (router)
-                {
-                    Request netReq;
-                    netReq.SetMethod(method);
-                    netReq.SetTarget(target);
-                    netReq.SetBody(req.body());
-
-                    for (auto const& field : req)
+                    if (ec)
                     {
-                        netReq.SetHeader(std::string(field.name_string()), std::string(field.value()));
-                    }
-
-                    Response netRes = router->Dispatch(netReq);
-
-                    res.result(static_cast<bhttp::status>(netRes.StatusCode()));
-                    res.set(bhttp::field::content_type, netRes.ContentType());
-                    for (const auto& [hdrK, hdrV] : netRes.Headers())
-                    {
-                        res.set(hdrK, hdrV);
-                    }
-                    res.body() = netRes.Body();
-                    res.prepare_payload();
-                }
-                else if (target == "/graphql" && req.method() == bhttp::verb::post)
-                {
-                    try
-                    {
-                        auto parsed = boost::json::parse(req.body());
-                        std::string query;
-                        boost::json::value variables = nullptr;
-
-                        if (parsed.is_object())
+                        if (ec != bhttp::error::end_of_stream && ec != beast::error::timeout)
                         {
-                            auto const& obj = parsed.as_object();
-                            if (obj.contains("query") && obj.at("query").is_string())
-                            {
-                                query = std::string(obj.at("query").as_string());
-                            }
-                            if (obj.contains("variables"))
-                            {
-                                variables = obj.at("variables");
-                            }
+                            omnisphere::utils::Logger::LogWarning("HttpServer", "HTTP write error to [" + clientIp + "]: " + ec.message());
                         }
-
-                        boost::json::value resultVal;
-                        if (gqlHandler)
-                        {
-                            resultVal = gqlHandler(query, variables);
-                        }
-
-                        res.result(bhttp::status::ok);
-                        res.set(bhttp::field::content_type, "application/json");
-                        res.body() = boost::json::serialize(resultVal);
-                        res.prepare_payload();
+                        break;
                     }
-                    catch (const std::exception& e)
-                    {
-                        res.result(bhttp::status::internal_server_error);
-                        res.set(bhttp::field::content_type, "application/json");
-                        res.body() = R"({"errors":[{"message":"Internal server error"}]})";
-                        res.prepare_payload();
-                    }
-                }
-                else
-                {
-                    res.result(bhttp::status::not_found);
-                    res.set(bhttp::field::content_type, "application/json");
-                    res.body() = R"({"error":"404 Not Found"})";
-                    res.prepare_payload();
+
+                    if (!req.keep_alive()) break;
                 }
 
-                stream.expires_after(std::chrono::seconds(30));
-                bhttp::write(stream, res, ec);
-                if (ec) break;
-
-                if (!req.keep_alive()) break;
+                stream.socket().shutdown(tcp::socket::shutdown_send, ec);
             }
-
-            stream.socket().shutdown(tcp::socket::shutdown_send, ec);
+            catch (const std::exception& ex)
+            {
+                omnisphere::utils::Logger::LogError("HttpServer", std::string("Fatal exception in session worker: ") + ex.what());
+            }
+            catch (...)
+            {
+                omnisphere::utils::Logger::LogError("HttpServer", "Unknown fatal exception in session worker.");
+            }
         }
 
         void AcceptLoop()
@@ -199,6 +236,14 @@ namespace omnisphere::net
                     asio::post(*workerPool, [this, sock = std::move(socket)]() mutable {
                         HandleSession(std::move(sock));
                     });
+                }
+                else if (ec && isRunning)
+                {
+                    if (ec != asio::error::operation_aborted)
+                    {
+                        omnisphere::utils::Logger::LogWarning("HttpServer", "Accept error on port " + std::to_string(port) + ": " + ec.message());
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    }
                 }
             }
         }
