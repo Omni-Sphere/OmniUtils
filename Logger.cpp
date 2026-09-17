@@ -115,7 +115,7 @@ namespace omnisphere::utils
                                         "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
                                     severity % channel % origin % expr::smessage);
 
-            // --- CONSOLE SINK (With ANSI Colors) ---
+            // --- CONSOLE SINK (With High-Legibility Modern ANSI Theme) ---
             auto consoleSink = logging::add_console_log(std::clog);
             consoleSink->set_formatter([](logging::record_view const& rec, logging::formatting_ostream& strm) {
                 auto timeStamp = logging::extract<boost::posix_time::ptime>("TimeStamp", rec);
@@ -124,42 +124,84 @@ namespace omnisphere::utils
                 auto orig = logging::extract<std::string>("Origin", rec);
                 auto msg = rec[expr::smessage];
 
-                // Timestamp
+                // ANSI styles & palette (Truecolor Dracula/Modern high-contrast)
+                constexpr const char* RESET       = "\033[0m";
+                constexpr const char* CLR_TIME    = "\033[38;2;120;130;150m";          // Muted slate gray
+                constexpr const char* TAG_DEBUG   = "\033[38;2;139;233;253m⚙ DEBUG \033[0m "; // Cyan
+                constexpr const char* TAG_INFO    = "\033[38;2;80;250;123m\033[1m● INFO  \033[0m ";  // Vivid Emerald Green
+                constexpr const char* TAG_WARN    = "\033[38;2;241;250;140m\033[1m▲ WARN  \033[0m ";  // Warm Amber
+                constexpr const char* TAG_ERROR   = "\033[38;2;255;85;85m\033[1m✖ ERROR \033[0m ";   // Bright Crimson
+
+                constexpr const char* CLR_CH_SQL  = "\033[38;2;255;184;108m\033[1m"; // Warm Orange
+                constexpr const char* CLR_CH_GQL  = "\033[38;2;255;121;198m\033[1m"; // Pink / Magenta
+                constexpr const char* CLR_CH_HTTP = "\033[38;2;189;147;249m\033[1m"; // Purple
+                constexpr const char* CLR_CH_SYS  = "\033[38;2;139;233;253m\033[1m"; // Cyan
+                constexpr const char* CLR_CH_DEF  = "\033[38;2;189;147;249m\033[1m";
+
+                constexpr const char* CLR_ORIGIN  = "\033[38;2;140;160;185m";        // Slate blue
+                constexpr const char* CLR_MSG_ERR = "\033[38;2;255;105;105m\033[1m"; // Crisp prominent red
+                constexpr const char* CLR_MSG_WRN = "\033[38;2;245;220;120m";        // Warm amber message
+                constexpr const char* CLR_MSG_SQL = "\033[38;2;245;225;185m";        // Readable warm cream for queries
+                constexpr const char* CLR_MSG_DBG = "\033[38;2;150;160;175m";        // Subdued gray
+                constexpr const char* CLR_MSG_DEF = "\033[38;2;248;248;242m";        // High-contrast clean white
+
+                // 1. Timestamp [HH:MM:SS.mmm]
                 if (timeStamp) {
-                    strm << "\033[90m[" << boost::posix_time::to_simple_string(timeStamp.get().time_of_day()) << "]\033[0m ";
+                    std::string tStr = boost::posix_time::to_simple_string(timeStamp.get().time_of_day());
+                    if (tStr.length() > 12) tStr = tStr.substr(0, 12);
+                    strm << CLR_TIME << "[" << tStr << "] " << RESET;
                 }
 
-                // Severity
+                // 2. Severity (aligned width + distinctive icon)
+                LogType currentSev = LogType::INFO;
                 if (sev) {
-                    switch (sev.get()) {
-                        case LogType::DEBUG:
-                            strm << "\033[36m[DEBUG]\033[0m ";   // Cyan
-                            break;
-                        case LogType::INFO:
-                            strm << "\033[32m[INFO]\033[0m ";    // Green
-                            break;
-                        case LogType::WARNING:
-                            strm << "\033[33m[WARNING]\033[0m "; // Yellow
-                            break;
-                        case LogType::ERROR:
-                            strm << "\033[1;31m[ERROR]\033[0m "; // Bold Red
-                            break;
+                    currentSev = sev.get();
+                    switch (currentSev) {
+                        case LogType::DEBUG:   strm << TAG_DEBUG; break;
+                        case LogType::INFO:    strm << TAG_INFO;  break;
+                        case LogType::WARNING: strm << TAG_WARN;  break;
+                        case LogType::ERROR:   strm << TAG_ERROR; break;
                     }
                 }
 
-                // Channel
+                // 3. Channel with specific color
+                std::string channelName;
                 if (ch) {
-                    strm << "\033[35m[" << ch.get() << "]\033[0m "; // Magenta
+                    channelName = ch.get();
+                    const char* clrCh = CLR_CH_DEF;
+                    if (channelName == "SQL") clrCh = CLR_CH_SQL;
+                    else if (channelName == "GRAPHQL") clrCh = CLR_CH_GQL;
+                    else if (channelName == "HTTP_REQ" || channelName == "HTTP") clrCh = CLR_CH_HTTP;
+                    else if (channelName == "SYSTEM") clrCh = CLR_CH_SYS;
+
+                    strm << clrCh << "[" << channelName << "]" << RESET << " ";
                 }
 
-                // Origin
+                // 4. Origin ([OmniRouteAPI], [PostgreSQL], [/graphql], etc.)
                 if (orig) {
-                    strm << "\033[34m[" << orig.get() << "]\033[0m "; // Blue
+                    strm << CLR_ORIGIN << "[" << orig.get() << "]" << RESET << " ";
                 }
 
-                // Message
+                // 5. Message with adaptive color and newline safety
                 if (msg) {
-                    strm << msg.get();
+                    const char* msgColor = CLR_MSG_DEF;
+                    if (currentSev == LogType::ERROR) {
+                        msgColor = CLR_MSG_ERR;
+                    } else if (currentSev == LogType::WARNING) {
+                        msgColor = CLR_MSG_WRN;
+                    } else if (currentSev == LogType::DEBUG) {
+                        msgColor = CLR_MSG_DBG;
+                    } else if (channelName == "SQL") {
+                        msgColor = CLR_MSG_SQL;
+                    }
+
+                    std::string msgStr = msg.get();
+                    strm << msgColor << msgStr << RESET;
+                    if (msgStr.empty() || msgStr.back() != '\n') {
+                        strm << "\n";
+                    }
+                } else {
+                    strm << "\n";
                 }
             });
 
