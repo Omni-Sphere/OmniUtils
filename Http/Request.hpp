@@ -77,15 +77,16 @@ namespace omnisphere::net
             return "";
         }
 
-        // Future RBAC Implementation:
-        /*
         std::string UserRole() const
         {
             if (userClaims.contains("role") && userClaims.at("role").is_string())
                 return std::string(userClaims.at("role").as_string());
+            if (userClaims.contains("RoleCode") && userClaims.at("RoleCode").is_string())
+                return std::string(userClaims.at("RoleCode").as_string());
+            if (userClaims.contains("roleCode") && userClaims.at("roleCode").is_string())
+                return std::string(userClaims.at("roleCode").as_string());
             return "";
         }
-        */
 
         std::string Header(const std::string& key) const
         {
