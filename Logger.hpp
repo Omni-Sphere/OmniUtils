@@ -8,12 +8,13 @@
 #include <chrono>
 #include <iomanip>
 #include <boost/json.hpp>
-
 #include <atomic>
+#include <memory>
 
 namespace omnisphere::net
 {
     class Request;
+    class Response;
 }
 
 namespace omnisphere::utils
@@ -28,12 +29,40 @@ namespace omnisphere::utils
 
     std::ostream& operator<<(std::ostream& strm, LogType level);
 
+    struct RequestContext
+    {
+        std::string requestId;
+        std::string clientIp;
+        std::string userCode;
+        std::string clientId;
+    };
+
+    /**
+     * @brief RAII scope that sets the thread-local RequestContext on construction
+     * and automatically restores the previous context on destruction.
+     */
+    class RequestContextScope
+    {
+    public:
+        RequestContextScope(std::string reqId, std::string clientIp, std::string user = "", std::string client = "");
+        ~RequestContextScope();
+
+        RequestContextScope(const RequestContextScope&) = delete;
+        RequestContextScope& operator=(const RequestContextScope&) = delete;
+
+    private:
+        RequestContext m_prevContext;
+    };
+
     class Logger
     {
-        private:
+    private:
         static std::atomic<bool> s_extendedLogEnabled;
 
-        public:
+    public:
+        static constexpr long long SLOW_SQL_THRESHOLD_MS = 100;
+        static constexpr long long SLOW_HTTP_THRESHOLD_MS = 250;
+
         /**
         * @brief Set whether extended logging (SQL/GraphQL queries) is enabled.
         */
@@ -45,54 +74,53 @@ namespace omnisphere::utils
         static bool IsExtendedLogEnabled();
 
         /**
-        * @brief Initialize the logging system.
-        * Sets up hourly rotation (YYYYMMDDHH.log) in the Logs/ directory.
+        * @brief Initialize the logging system and base directories.
         */
         static void Init();
 
         /**
+        * @brief Thread-local context management
+        */
+        static void SetCurrentContext(const RequestContext& ctx);
+        static RequestContext GetCurrentContext();
+        static void ClearCurrentContext();
+
+        /**
         * @brief Log a system event from a specific class.
-        * Format: [Timestamp] [Severity] [SYSTEM] [ClassName] Message
+        * File: Logs/<IP>/system_YYYYMMDDHH.log (or Logs/server/)
+        * Console: High-contrast status line.
         */
         static void LogSystem(LogType type, const std::string& className, const std::string& message);
 
         /**
-        * @brief Convenience helper to log an INFO system message.
+        * @brief Convenience helpers
         */
         static void LogInfo(const std::string& className, const std::string& message);
-
-        /**
-        * @brief Convenience helper to log a WARNING system message.
-        */
         static void LogWarning(const std::string& className, const std::string& message);
-
-        /**
-        * @brief Convenience helper to log an ERROR system message.
-        */
         static void LogError(const std::string& className, const std::string& message);
-
-        /**
-        * @brief Log a debug message.
-        * Format: [Timestamp] [DEBUG] [DEBUG] [ClassName] Message
-        */
         static void LogDebug(const std::string& className, const std::string& message);
 
         /**
-        * @brief Log a full HTTP Request with Request ID, Client context, headers, and body.
+        * @brief Log incoming HTTP Request (detailed to Logs/<IP>/net_YYYYMMDDHH.log; no console spam).
         */
         static void LogHttpRequest(const omnisphere::net::Request& req);
 
         /**
-        * @brief Log a GraphQL transaction.
-        * Format: [Timestamp] [GRAPHQL] [Endpoint] Request/Response details
+        * @brief Log completed HTTP Response (detailed to Logs/<IP>/net_YYYYMMDDHH.log; concise live line on console with SLOW/ERROR alerts).
         */
-        static void LogGraphQL(const std::string& endpoint, const std::string& request, const std::string& response);
+        static void LogHttpResponse(const omnisphere::net::Request& req, const omnisphere::net::Response& resp, long long durationMs);
 
         /**
         * @brief Log an SQL query.
-        * Format: [Timestamp] [SQL] [DbEngine] Query
+        * File: Logs/<IP>/sql_YYYYMMDDHH.log (or Logs/server/)
+        * Console: Only alert if durationMs >= SLOW_SQL_THRESHOLD_MS (100ms) or on error. Fast queries are omitted from console.
         */
-        static void LogSQL(const std::string& dbEngine, const std::string& message);
+        static void LogSQL(const std::string& dbEngine, const std::string& message, long long durationMs = -1);
+
+        /**
+        * @brief Log a GraphQL transaction (detailed to Logs/<IP>/system_YYYYMMDDHH.log; errors highlighted on console).
+        */
+        static void LogGraphQL(const std::string& endpoint, const std::string& request, const std::string& response);
 
         /**
         * @brief Get the current stack trace as a string.

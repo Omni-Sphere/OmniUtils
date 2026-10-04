@@ -29,6 +29,34 @@ namespace omnisphere::net
             return *this;
         }
 
+        Response& SetCookie(const std::string& name, const std::string& value, int maxAge = 86400, const std::string& path = "/", bool httpOnly = true, const std::string& sameSite = "Lax", bool secure = false)
+        {
+            std::string cookie = name + "=" + value + "; Path=" + path;
+            if (maxAge >= 0)
+            {
+                cookie += "; Max-Age=" + std::to_string(maxAge);
+            }
+            if (httpOnly)
+            {
+                cookie += "; HttpOnly";
+            }
+            if (!sameSite.empty())
+            {
+                cookie += "; SameSite=" + sameSite;
+            }
+            if (secure)
+            {
+                cookie += "; Secure";
+            }
+            m_headers["Set-Cookie"] = std::move(cookie);
+            return *this;
+        }
+
+        Response& ClearCookie(const std::string& name, const std::string& path = "/")
+        {
+            return SetCookie(name, "", 0, path, true, "Lax", false);
+        }
+
         static Response Json(const boost::json::value& jsonVal, int status = 200)
         {
             return Response(status, "application/json", boost::json::serialize(jsonVal));

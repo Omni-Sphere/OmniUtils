@@ -123,6 +123,7 @@ namespace omnisphere::net
                             netReq.SetMethod(method);
                             netReq.SetTarget(target);
                             netReq.SetBody(req.body());
+                            netReq.SetClientIP(clientIp);
 
                             for (auto const& field : req)
                             {

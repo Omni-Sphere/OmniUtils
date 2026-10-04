@@ -20,6 +20,7 @@ namespace omnisphere::net
         void SetHeader(std::string k, std::string v) { headers[std::move(k)] = std::move(v); }
         void SetParam(std::string k, std::string v) { pathParams[std::move(k)] = std::move(v); }
         void SetQueryParam(std::string k, std::string v) { queryParams[std::move(k)] = std::move(v); }
+        void SetClientIP(std::string ip) { clientIp = std::move(ip); }
         void SetUserClaims(boost::json::object claims)
         {
             userClaims = std::move(claims);
@@ -61,9 +62,45 @@ namespace omnisphere::net
             return "DEFAULT";
         }
 
+        std::string ClientIP() const
+        {
+            std::string xff = Header("X-Forwarded-For");
+            if (!xff.empty())
+            {
+                size_t comma = xff.find(',');
+                if (comma != std::string::npos)
+                {
+                    std::string firstIp = xff.substr(0, comma);
+                    while (!firstIp.empty() && (firstIp.back() == ' ' || firstIp.back() == '\t')) firstIp.pop_back();
+                    return firstIp;
+                }
+                return xff;
+            }
+            std::string realIp = Header("X-Real-IP");
+            if (!realIp.empty()) return realIp;
+
+            if (!clientIp.empty()) return clientIp;
+            return "127.0.0.1";
+        }
+
+        std::string SanitizedClientIP() const
+        {
+            std::string raw = ClientIP();
+            if (raw.empty() || raw == "unknown") return "127.0.0.1";
+            std::string sanitized;
+            sanitized.reserve(raw.size());
+            for (char c : raw)
+            {
+                if (c == ':') sanitized.push_back('_');
+                else if (std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_')
+                    sanitized.push_back(c);
+            }
+            return sanitized.empty() ? "127.0.0.1" : sanitized;
+        }
+
         std::string TraceContext() const
         {
-            return "[ReqID: " + RequestId() + "] [Client: " + ClientId() + "]";
+            return "[ReqID: " + RequestId() + "] [IP: " + ClientIP() + "] [Client: " + ClientId() + "]";
         }
 
         std::string UserCode() const
@@ -112,6 +149,34 @@ namespace omnisphere::net
             return "";
         }
 
+        std::string Cookie(const std::string& name) const
+        {
+            std::string cookieHeader = Header("Cookie");
+            if (cookieHeader.empty()) return "";
+
+            size_t pos = 0;
+            while (pos < cookieHeader.size())
+            {
+                while (pos < cookieHeader.size() && (cookieHeader[pos] == ' ' || cookieHeader[pos] == ';'))
+                    ++pos;
+                if (pos >= cookieHeader.size()) break;
+
+                size_t eqPos = cookieHeader.find('=', pos);
+                if (eqPos == std::string::npos) break;
+
+                std::string k = cookieHeader.substr(pos, eqPos - pos);
+                size_t semiPos = cookieHeader.find(';', eqPos);
+                std::string v = (semiPos == std::string::npos) 
+                    ? cookieHeader.substr(eqPos + 1) 
+                    : cookieHeader.substr(eqPos + 1, semiPos - (eqPos + 1));
+
+                if (k == name) return v;
+                if (semiPos == std::string::npos) break;
+                pos = semiPos + 1;
+            }
+            return "";
+        }
+
         std::string Param(const std::string& key) const
         {
             auto it = pathParams.find(key);
@@ -146,5 +211,6 @@ namespace omnisphere::net
         boost::json::object userClaims;
         bool isAuthenticated = false;
         mutable std::string generatedRequestId;
+        std::string clientIp;
     };
 } // namespace omnisphere::net

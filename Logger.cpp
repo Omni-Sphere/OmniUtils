@@ -2,31 +2,74 @@
 #include "Logger.hpp"
 #include "PathUtils.hpp"
 #include "Http/Request.hpp"
+#include "Http/Response.hpp"
+
 #include <algorithm>
 #include <boost/stacktrace.hpp>
-#include <boost/log/attributes.hpp>
-#include <boost/log/core.hpp>
-#include <boost/log/expressions.hpp>
-#include <boost/log/sinks/text_file_backend.hpp>
-#include <boost/log/sources/severity_channel_logger.hpp>
-#include <boost/log/support/date_time.hpp>
-#include <boost/log/utility/manipulators/add_value.hpp>
-#include <boost/log/utility/setup/common_attributes.hpp>
-#include <boost/log/utility/setup/console.hpp>
-#include <boost/log/utility/setup/file.hpp>
 #include <filesystem>
 #include <iostream>
-
-namespace logging = boost::log;
-namespace src = boost::log::sources;
-namespace sinks = boost::log::sinks;
-namespace expr = boost::log::expressions;
-namespace keywords = boost::log::keywords;
-namespace attrs = boost::log::attributes;
+#include <sstream>
+#include <ctime>
 
 namespace omnisphere::utils
 {
     std::atomic<bool> Logger::s_extendedLogEnabled{true};
+
+    // ANSI Colors and Styles
+    static constexpr const char* RESET       = "\033[0m";
+    static constexpr const char* CLR_TIME    = "\033[38;2;120;130;150m";          // Muted slate gray
+    static constexpr const char* TAG_DEBUG   = "\033[38;2;139;233;253m⚙ DEBUG \033[0m "; // Cyan
+    static constexpr const char* TAG_INFO    = "\033[38;2;80;250;123m\033[1m● INFO  \033[0m ";  // Vivid Emerald Green
+    static constexpr const char* TAG_WARN    = "\033[38;2;241;250;140m\033[1m▲ WARN  \033[0m ";  // Warm Amber
+    static constexpr const char* TAG_ERROR   = "\033[38;2;255;85;85m\033[1m✖ ERROR \033[0m ";   // Bright Crimson
+    static constexpr const char* TAG_SLOW    = "\033[38;2;255;184;108m\033[1m▲ SLOW  \033[0m "; // Warm Orange
+
+    static constexpr const char* CLR_ORIGIN  = "\033[38;2;140;160;185m";        // Slate blue
+    static constexpr const char* CLR_IP      = "\033[38;2;189;147;249m";        // Purple
+    static constexpr const char* CLR_MSG_ERR = "\033[38;2;255;105;105m\033[1m"; // Prominent Red
+    static constexpr const char* CLR_MSG_WRN = "\033[38;2;245;220;120m";        // Amber
+    static constexpr const char* CLR_MSG_SQL = "\033[38;2;245;225;185m";        // Cream
+    static constexpr const char* CLR_MSG_DEF = "\033[38;2;248;248;242m";        // High contrast white
+
+    // Global file path and synchronization
+    static std::string g_currentLogDir;
+    static bool g_loggerInitialized = false;
+    static std::mutex g_fileWriteMutex;
+    static std::mutex g_consoleMutex;
+
+    // Thread-local correlation context
+    static thread_local RequestContext t_currentContext;
+
+    RequestContextScope::RequestContextScope(std::string reqId, std::string clientIp, std::string user, std::string client)
+    {
+        m_prevContext = t_currentContext;
+        t_currentContext = RequestContext{
+            std::move(reqId),
+            std::move(clientIp),
+            std::move(user),
+            std::move(client)
+        };
+    }
+
+    RequestContextScope::~RequestContextScope()
+    {
+        t_currentContext = m_prevContext;
+    }
+
+    void Logger::SetCurrentContext(const RequestContext& ctx)
+    {
+        t_currentContext = ctx;
+    }
+
+    RequestContext Logger::GetCurrentContext()
+    {
+        return t_currentContext;
+    }
+
+    void Logger::ClearCurrentContext()
+    {
+        t_currentContext = RequestContext{};
+    }
 
     void Logger::SetExtendedLog(bool enabled)
     {
@@ -57,29 +100,84 @@ namespace omnisphere::utils
         return strm;
     }
 
-    // Define global attributes
-    BOOST_LOG_ATTRIBUTE_KEYWORD(severity, "Severity", LogType)
-    BOOST_LOG_ATTRIBUTE_KEYWORD(channel, "Channel", std::string)
-    BOOST_LOG_ATTRIBUTE_KEYWORD(origin, "Origin", std::string)
-
-    static std::string g_currentLogDir;
-    static bool g_loggerInitialized = false;
-
-    static void CheckLogFileExists()
+    static std::string SanitizeClientDirectory(const std::string& raw)
     {
-        if (!g_loggerInitialized || g_currentLogDir.empty()) return;
-
-        std::time_t t = std::time(nullptr);
-        std::tm tm = *std::localtime(&t);
-        char buf[64];
-        std::strftime(buf, sizeof(buf), "%Y%m%d%H.log", &tm);
-        std::filesystem::path currentLogFile = std::filesystem::path(g_currentLogDir) / buf;
-
-        if (!std::filesystem::exists(currentLogFile))
+        if (raw.empty() || raw == "unknown" || raw == "server") return "server";
+        std::string out;
+        out.reserve(raw.size());
+        for (char c : raw)
         {
-            logging::core::get()->remove_all_sinks();
-            g_loggerInitialized = false;
-            Logger::Init();
+            if (c == ':') out.push_back('_');
+            else if (std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_')
+                out.push_back(c);
+        }
+        return out.empty() ? "server" : out;
+    }
+
+    static std::string GetCurrentTimestampString()
+    {
+        auto now = std::chrono::system_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+        std::time_t t = std::chrono::system_clock::to_time_t(now);
+        std::tm tm{};
+        localtime_r(&t, &tm);
+        char buf[32];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
+        std::ostringstream oss;
+        oss << buf << '.' << std::setfill('0') << std::setw(3) << ms.count();
+        return oss.str();
+    }
+
+    static std::string GetCurrentTimeString()
+    {
+        auto now = std::chrono::system_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+        std::time_t t = std::chrono::system_clock::to_time_t(now);
+        std::tm tm{};
+        localtime_r(&t, &tm);
+        char buf[16];
+        std::strftime(buf, sizeof(buf), "%H:%M:%S", &tm);
+        std::ostringstream oss;
+        oss << buf << '.' << std::setfill('0') << std::setw(3) << ms.count();
+        return oss.str();
+    }
+
+    static void WriteLogToFile(const std::string& subDir, const std::string& channel, const std::string& line)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(g_fileWriteMutex);
+            if (g_currentLogDir.empty())
+            {
+                std::filesystem::path exeDir = GetExecutableDir();
+                std::filesystem::path logDir = exeDir / "Logs";
+                g_currentLogDir = logDir.string();
+            }
+
+            std::filesystem::path targetDir = std::filesystem::path(g_currentLogDir) / subDir;
+            if (!std::filesystem::exists(targetDir))
+            {
+                std::filesystem::create_directories(targetDir);
+            }
+
+            std::time_t t = std::time(nullptr);
+            std::tm tm{};
+            localtime_r(&t, &tm);
+            char hourBuf[32];
+            std::strftime(hourBuf, sizeof(hourBuf), "%Y%m%d%H", &tm);
+
+            std::filesystem::path logFilePath = targetDir / (channel + "_" + std::string(hourBuf) + ".log");
+            std::ofstream ofs(logFilePath, std::ios_base::app | std::ios_base::out);
+            if (ofs.is_open())
+            {
+                ofs << line;
+                if (line.empty() || line.back() != '\n')
+                    ofs << "\n";
+            }
+        }
+        catch (...)
+        {
+            // Logging failure must not crash the service
         }
     }
 
@@ -88,7 +186,6 @@ namespace omnisphere::utils
         if (g_loggerInitialized) return;
         try
         {
-            // Ensure Logs directory exists relative to binary executable
             std::filesystem::path exeDir = GetExecutableDir();
             std::filesystem::path logDir = exeDir / "Logs";
             g_currentLogDir = logDir.string();
@@ -98,132 +195,61 @@ namespace omnisphere::utils
                 std::filesystem::create_directories(logDir);
             }
 
-            // Set up common attributes (timestamp, etc.)
-            logging::add_common_attributes();
-            logging::core::get()->add_global_attribute("Scope", attrs::named_scope());
-
-            // --- UNIFIED LOG SINK (File log - plain text) ---
-            std::string logFileNamePattern = (logDir / "%Y%m%d%H.log").string();
-            auto fileSink = logging::add_file_log(
-                keywords::file_name = logFileNamePattern,
-                keywords::open_mode = std::ios_base::app | std::ios_base::out,
-                keywords::time_based_rotation =
-                sinks::file::rotation_at_time_interval(boost::posix_time::hours(1)),
-                keywords::auto_flush = true);
-            fileSink->set_formatter(expr::format("[%1%] [%2%] [%3%] [%4%] %5%") %
-                                    expr::format_date_time<boost::posix_time::ptime>(
-                                        "TimeStamp", "%Y-%m-%d %H:%M:%S.%f") %
-                                    severity % channel % origin % expr::smessage);
-
-            // --- CONSOLE SINK (With High-Legibility Modern ANSI Theme) ---
-            auto consoleSink = logging::add_console_log(std::clog);
-            consoleSink->set_formatter([](logging::record_view const& rec, logging::formatting_ostream& strm) {
-                auto timeStamp = logging::extract<boost::posix_time::ptime>("TimeStamp", rec);
-                auto sev = logging::extract<LogType>("Severity", rec);
-                auto ch = logging::extract<std::string>("Channel", rec);
-                auto orig = logging::extract<std::string>("Origin", rec);
-                auto msg = rec[expr::smessage];
-
-                // ANSI styles & palette (Truecolor Dracula/Modern high-contrast)
-                constexpr const char* RESET       = "\033[0m";
-                constexpr const char* CLR_TIME    = "\033[38;2;120;130;150m";          // Muted slate gray
-                constexpr const char* TAG_DEBUG   = "\033[38;2;139;233;253m⚙ DEBUG \033[0m "; // Cyan
-                constexpr const char* TAG_INFO    = "\033[38;2;80;250;123m\033[1m● INFO  \033[0m ";  // Vivid Emerald Green
-                constexpr const char* TAG_WARN    = "\033[38;2;241;250;140m\033[1m▲ WARN  \033[0m ";  // Warm Amber
-                constexpr const char* TAG_ERROR   = "\033[38;2;255;85;85m\033[1m✖ ERROR \033[0m ";   // Bright Crimson
-
-                constexpr const char* CLR_CH_SQL  = "\033[38;2;255;184;108m\033[1m"; // Warm Orange
-                constexpr const char* CLR_CH_GQL  = "\033[38;2;255;121;198m\033[1m"; // Pink / Magenta
-                constexpr const char* CLR_CH_HTTP = "\033[38;2;189;147;249m\033[1m"; // Purple
-                constexpr const char* CLR_CH_SYS  = "\033[38;2;139;233;253m\033[1m"; // Cyan
-                constexpr const char* CLR_CH_DEF  = "\033[38;2;189;147;249m\033[1m";
-
-                constexpr const char* CLR_ORIGIN  = "\033[38;2;140;160;185m";        // Slate blue
-                constexpr const char* CLR_MSG_ERR = "\033[38;2;255;105;105m\033[1m"; // Crisp prominent red
-                constexpr const char* CLR_MSG_WRN = "\033[38;2;245;220;120m";        // Warm amber message
-                constexpr const char* CLR_MSG_SQL = "\033[38;2;245;225;185m";        // Readable warm cream for queries
-                constexpr const char* CLR_MSG_DBG = "\033[38;2;150;160;175m";        // Subdued gray
-                constexpr const char* CLR_MSG_DEF = "\033[38;2;248;248;242m";        // High-contrast clean white
-
-                // 1. Timestamp [HH:MM:SS.mmm]
-                if (timeStamp) {
-                    std::string tStr = boost::posix_time::to_simple_string(timeStamp.get().time_of_day());
-                    if (tStr.length() > 12) tStr = tStr.substr(0, 12);
-                    strm << CLR_TIME << "[" << tStr << "] " << RESET;
-                }
-
-                // 2. Severity (aligned width + distinctive icon)
-                LogType currentSev = LogType::INFO;
-                if (sev) {
-                    currentSev = sev.get();
-                    switch (currentSev) {
-                        case LogType::DEBUG:   strm << TAG_DEBUG; break;
-                        case LogType::INFO:    strm << TAG_INFO;  break;
-                        case LogType::WARNING: strm << TAG_WARN;  break;
-                        case LogType::ERROR:   strm << TAG_ERROR; break;
-                    }
-                }
-
-                // 3. Channel with specific color
-                std::string channelName;
-                if (ch) {
-                    channelName = ch.get();
-                    const char* clrCh = CLR_CH_DEF;
-                    if (channelName == "SQL") clrCh = CLR_CH_SQL;
-                    else if (channelName == "GRAPHQL") clrCh = CLR_CH_GQL;
-                    else if (channelName == "HTTP_REQ" || channelName == "HTTP") clrCh = CLR_CH_HTTP;
-                    else if (channelName == "SYSTEM") clrCh = CLR_CH_SYS;
-
-                    strm << clrCh << "[" << channelName << "]" << RESET << " ";
-                }
-
-                // 4. Origin ([OmniRouteAPI], [PostgreSQL], [/graphql], etc.)
-                if (orig) {
-                    strm << CLR_ORIGIN << "[" << orig.get() << "]" << RESET << " ";
-                }
-
-                // 5. Message with adaptive color and newline safety
-                if (msg) {
-                    const char* msgColor = CLR_MSG_DEF;
-                    if (currentSev == LogType::ERROR) {
-                        msgColor = CLR_MSG_ERR;
-                    } else if (currentSev == LogType::WARNING) {
-                        msgColor = CLR_MSG_WRN;
-                    } else if (currentSev == LogType::DEBUG) {
-                        msgColor = CLR_MSG_DBG;
-                    } else if (channelName == "SQL") {
-                        msgColor = CLR_MSG_SQL;
-                    }
-
-                    std::string msgStr = msg.get();
-                    strm << msgColor << msgStr << RESET;
-                    if (msgStr.empty() || msgStr.back() != '\n') {
-                        strm << "\n";
-                    }
-                } else {
-                    strm << "\n";
-                }
-            });
-
-            logging::core::get()->set_filter(severity >= LogType::DEBUG);
             g_loggerInitialized = true;
-            std::cout << "\033[32m[Logger] Unified single-file logging system active. Directory: " << logDir.string() << "\033[0m" << std::endl;
+            std::cout << "\033[32m[Logger] Multi-client isolated logging system initialized. Base Directory: " 
+                      << logDir.string() << "\033[0m" << std::endl;
         }
         catch (const std::exception &e)
         {
-            std::cerr << "CRITICAL: Failed to initialize Logger: " << e.what()
-            << std::endl;
+            std::cerr << "CRITICAL: Failed to initialize Logger: " << e.what() << std::endl;
         }
     }
 
-    void Logger::LogSystem(LogType type, const std::string &className,
-                           const std::string &message)
+    void Logger::LogSystem(LogType type, const std::string &className, const std::string &message)
     {
-        CheckLogFileExists();
-        src::severity_channel_logger_mt<LogType, std::string> logger(
-            keywords::channel = "SYSTEM");
-        BOOST_LOG_SEV(logger, type)
-        << logging::add_value("Origin", className) << message;
+        Init();
+
+        RequestContext ctx = t_currentContext;
+        std::string subDir = SanitizeClientDirectory(ctx.clientIp);
+        std::string ts = GetCurrentTimestampString();
+
+        std::ostringstream ss;
+        ss << "[" << ts << "] [" << type << "] [SYSTEM] [" << className << "]";
+        if (!ctx.requestId.empty()) ss << " [" << ctx.requestId << "]";
+        if (!ctx.clientIp.empty()) ss << " [IP: " << ctx.clientIp << "]";
+        if (!ctx.userCode.empty()) ss << " [User: " << ctx.userCode << "]";
+        ss << " " << message;
+
+        WriteLogToFile(subDir, "system", ss.str());
+
+        // Console Output
+        {
+            std::lock_guard<std::mutex> lock(g_consoleMutex);
+            std::string timeStr = GetCurrentTimeString();
+            std::cout << CLR_TIME << "[" << timeStr << "] " << RESET;
+
+            switch (type)
+            {
+                case LogType::DEBUG:   std::cout << TAG_DEBUG; break;
+                case LogType::INFO:    std::cout << TAG_INFO;  break;
+                case LogType::WARNING: std::cout << TAG_WARN;  break;
+                case LogType::ERROR:   std::cout << TAG_ERROR; break;
+            }
+
+            std::cout << CLR_ORIGIN << "[" << className << "]" << RESET << " ";
+            if (!ctx.clientIp.empty())
+            {
+                std::cout << CLR_IP << "[" << ctx.clientIp << "]" << RESET << " ";
+            }
+
+            if (type == LogType::ERROR) std::cout << CLR_MSG_ERR;
+            else if (type == LogType::WARNING) std::cout << CLR_MSG_WRN;
+            else std::cout << CLR_MSG_DEF;
+
+            std::cout << message << RESET;
+            if (message.empty() || message.back() != '\n') std::cout << "\n";
+            std::cout.flush();
+        }
     }
 
     void Logger::LogInfo(const std::string &className, const std::string &message)
@@ -243,74 +269,171 @@ namespace omnisphere::utils
 
     void Logger::LogDebug(const std::string &className, const std::string &message)
     {
-        CheckLogFileExists();
-        src::severity_channel_logger_mt<LogType, std::string> logger(
-            keywords::channel = "DEBUG");
-        BOOST_LOG_SEV(logger, LogType::DEBUG)
-        << logging::add_value("Origin", className) << message;
+        LogSystem(LogType::DEBUG, className, message);
     }
 
     void Logger::LogHttpRequest(const omnisphere::net::Request& req)
     {
-        CheckLogFileExists();
-        src::severity_channel_logger_mt<LogType, std::string> logger(keywords::channel = "HTTP_REQ");
+        Init();
 
-        std::string reqLog = req.TraceContext() + " " + req.Method() + " " + req.Target();
+        std::string ip = req.ClientIP();
+        std::string subDir = SanitizeClientDirectory(ip);
+        std::string ts = GetCurrentTimestampString();
+
+        std::ostringstream ss;
+        ss << "[" << ts << "] [INFO] [HTTP_REQ] [" << req.RequestId() << "] [IP: " << ip << "] "
+           << req.Method() << " " << req.Target();
 
         if (!req.QueryParams().empty())
         {
-            reqLog += "\n  [Query Params]:";
+            ss << "\n  [Query Params]:";
             for (const auto& [k, v] : req.QueryParams())
             {
-                reqLog += "\n    " + k + " = " + v;
+                ss << "\n    " << k << " = " << v;
             }
         }
 
         if (!req.Headers().empty())
         {
-            reqLog += "\n  [Headers]:";
+            ss << "\n  [Headers]:";
             for (const auto& [k, v] : req.Headers())
             {
                 std::string lowerK = k;
                 std::transform(lowerK.begin(), lowerK.end(), lowerK.begin(), [](unsigned char c){ return std::tolower(c); });
                 if (lowerK == "authorization" && v.length() > 15)
                 {
-                    reqLog += "\n    " + k + ": " + v.substr(0, 15) + "... [REDACTED]";
+                    ss << "\n    " << k << ": " << v.substr(0, 15) << "... [REDACTED]";
                 }
                 else
                 {
-                    reqLog += "\n    " + k + ": " + v;
+                    ss << "\n    " << k << ": " << v;
                 }
             }
         }
 
         if (!req.Body().empty())
         {
-            reqLog += "\n  [Body Payload]:\n" + req.Body();
+            ss << "\n  [Body Payload]:\n" << req.Body();
         }
 
-        BOOST_LOG_SEV(logger, LogType::INFO)
-            << logging::add_value("Origin", req.Target()) << reqLog;
+        WriteLogToFile(subDir, "net", ss.str());
+        // Clean console: NO full body/headers dump to console.
     }
 
-    void Logger::LogSQL(const std::string &dbEngine, const std::string &message)
+    void Logger::LogHttpResponse(const omnisphere::net::Request& req, const omnisphere::net::Response& resp, long long durationMs)
     {
-        CheckLogFileExists();
-        if (!s_extendedLogEnabled)
-        {
-            return;
-        }
+        Init();
 
-        src::severity_channel_logger_mt<LogType, std::string> logger(
-            keywords::channel = "SQL");
-        BOOST_LOG_SEV(logger, LogType::INFO)
-        << logging::add_value("Origin", dbEngine) << message;
+        std::string ip = req.ClientIP();
+        std::string subDir = SanitizeClientDirectory(ip);
+        std::string ts = GetCurrentTimestampString();
+        int status = resp.StatusCode();
+        size_t bodySize = resp.Body().size();
+
+        std::ostringstream ss;
+        ss << "[" << ts << "] [INFO] [HTTP_RES] [" << req.RequestId() << "] [IP: " << ip << "] "
+           << "Status: " << status << " | Duration: " << durationMs << " ms | Size: " << bodySize << " bytes"
+           << " | " << req.Method() << " " << req.Target();
+
+        WriteLogToFile(subDir, "net", ss.str());
+
+        // Live Dashboard Console Output
+        {
+            std::lock_guard<std::mutex> lock(g_consoleMutex);
+            std::string timeStr = GetCurrentTimeString();
+            std::cout << CLR_TIME << "[" << timeStr << "] " << RESET;
+
+            if (status >= 500)
+            {
+                std::cout << TAG_ERROR << CLR_ORIGIN << "[HTTP " << status << "]" << RESET << " "
+                          << CLR_IP << "[" << ip << "]" << RESET << " "
+                          << CLR_MSG_ERR << req.Method() << " " << req.Target() 
+                          << " (" << durationMs << " ms) #" << req.RequestId() << RESET << "\n";
+            }
+            else if (durationMs >= SLOW_HTTP_THRESHOLD_MS)
+            {
+                std::cout << TAG_SLOW << CLR_ORIGIN << "[SLOW REQ]" << RESET << " "
+                          << CLR_IP << "[" << ip << "]" << RESET << " "
+                          << CLR_MSG_WRN << req.Method() << " " << req.Target()
+                          << " (" << durationMs << " ms | HTTP " << status << ") #" << req.RequestId() << RESET << "\n";
+            }
+            else if (status >= 400)
+            {
+                std::cout << TAG_WARN << CLR_ORIGIN << "[HTTP " << status << "]" << RESET << " "
+                          << CLR_IP << "[" << ip << "]" << RESET << " "
+                          << CLR_MSG_WRN << req.Method() << " " << req.Target()
+                          << " (" << durationMs << " ms) #" << req.RequestId() << RESET << "\n";
+            }
+            else
+            {
+                std::cout << TAG_INFO << CLR_ORIGIN << "[HTTP]" << RESET << " "
+                          << CLR_IP << "[" << ip << "]" << RESET << " "
+                          << CLR_MSG_DEF << req.Method() << " " << req.Target() << " -> " << status
+                          << " (" << durationMs << " ms) #" << req.RequestId() << RESET << "\n";
+            }
+            std::cout.flush();
+        }
+    }
+
+    void Logger::LogSQL(const std::string &dbEngine, const std::string &message, long long durationMs)
+    {
+        Init();
+        if (!s_extendedLogEnabled) return;
+
+        RequestContext ctx = t_currentContext;
+        std::string subDir = SanitizeClientDirectory(ctx.clientIp);
+        std::string ts = GetCurrentTimestampString();
+
+        std::ostringstream ss;
+        ss << "[" << ts << "] [INFO] [SQL] [" << dbEngine << "]";
+        if (!ctx.requestId.empty()) ss << " [" << ctx.requestId << "]";
+        if (!ctx.clientIp.empty()) ss << " [IP: " << ctx.clientIp << "]";
+        if (durationMs >= 0) ss << " [Duration: " << durationMs << " ms]";
+        ss << " " << message;
+
+        WriteLogToFile(subDir, "sql", ss.str());
+
+        // Console Output: Only show in console if it is a SLOW query (>= 100ms) or has an SQL Error
+        bool isSlow = (durationMs >= SLOW_SQL_THRESHOLD_MS);
+        bool isError = (message.find("ERROR") != std::string::npos || message.find("Error") != std::string::npos);
+
+        if (isSlow || isError)
+        {
+            std::lock_guard<std::mutex> lock(g_consoleMutex);
+            std::string timeStr = GetCurrentTimeString();
+            std::cout << CLR_TIME << "[" << timeStr << "] " << RESET;
+
+            if (isError)
+            {
+                std::cout << TAG_ERROR << CLR_ORIGIN << "[SQL " << dbEngine << "]" << RESET << " ";
+                if (!ctx.clientIp.empty()) std::cout << CLR_IP << "[" << ctx.clientIp << "]" << RESET << " ";
+                std::cout << CLR_MSG_ERR << message;
+            }
+            else
+            {
+                std::cout << TAG_SLOW << CLR_ORIGIN << "[SLOW SQL]" << RESET << " ";
+                if (!ctx.clientIp.empty()) std::cout << CLR_IP << "[" << ctx.clientIp << "]" << RESET << " ";
+                std::cout << CLR_MSG_SQL << "(" << durationMs << " ms) [" << dbEngine << "] " << message;
+            }
+
+            if (!ctx.requestId.empty())
+            {
+                std::cout << " #" << ctx.requestId;
+            }
+            std::cout << RESET << "\n";
+            std::cout.flush();
+        }
     }
 
     void Logger::LogGraphQL(const std::string &endpoint, const std::string &request,
                             const std::string &response)
     {
-        CheckLogFileExists();
+        Init();
+
+        RequestContext ctx = t_currentContext;
+        std::string subDir = SanitizeClientDirectory(ctx.clientIp);
+        std::string ts = GetCurrentTimestampString();
+
         bool hasErrors = false;
         std::string prettyRequest = request;
         std::string prettyResponse = response;
@@ -326,99 +449,33 @@ namespace omnisphere::utils
         }
         catch (...) {}
 
-        // If there are errors in response, ALWAYS log as ERROR regardless of ExtendedLog state
         if (hasErrors)
         {
             LogError("GraphQL", "Error in GraphQL request on endpoint '" + endpoint + "':\n" + prettyResponse);
         }
 
-        if (!s_extendedLogEnabled)
-        {
-            return;
-        }
-
-        src::severity_channel_logger_mt<LogType, std::string> logger(
-            keywords::channel = "GRAPHQL");
+        if (!s_extendedLogEnabled) return;
 
         try
         {
             auto reqJson = boost::json::parse(request);
             prettyRequest = prettyPrintJson(reqJson, 1);
-
-            // Extract entity name for better logging
-            std::string entityName;
-            std::string qStr;
-
-            if (reqJson.is_array() && !reqJson.get_array().empty())
-            {
-                auto &first = reqJson.get_array()[0];
-
-                if (first.is_object() && first.as_object().contains("query"))
-                {
-                    qStr = std::string(first.as_object().at("query").as_string());
-                }
-            }
-            else if (reqJson.is_object() && reqJson.as_object().contains("query"))
-            {
-                qStr = std::string(reqJson.as_object().at("query").as_string());
-            }
-
-            if (!qStr.empty())
-            {
-                size_t start = qStr.find('{');
-
-                if (start != std::string::npos)
-                {
-                    // Find the word after the first brace
-                    size_t entityStart = qStr.find_first_not_of(" \t\n\r", start + 1);
-
-                    if (entityStart != std::string::npos)
-                    {
-                        size_t entityEnd = qStr.find_first_of(" \t\n\r{", entityStart);
-
-                        if (entityEnd != std::string::npos)
-                        {
-                            entityName = qStr.substr(entityStart, entityEnd - entityStart);
-                            // If it's a wrapper like 'query', skip it
-
-                            if (entityName == "query" || entityName == "mutation")
-                            {
-                                start = qStr.find('{', entityEnd);
-
-                                if (start != std::string::npos)
-                                {
-                                    entityStart = qStr.find_first_not_of(" \t\n\r", start + 1);
-                                    entityEnd = qStr.find_first_of(" \t\n\r{", entityStart);
-
-                                    if (entityStart != std::string::npos && entityEnd != std::string::npos)
-                                    {
-                                        entityName = qStr.substr(entityStart, entityEnd - entityStart);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (!entityName.empty())
-            {
-                prettyRequest = entityName + "\n" + prettyRequest;
-            }
         }
         catch (...) {}
 
-        std::string entry = prettyRequest + "\n" + prettyResponse + "\n";
+        std::ostringstream ss;
+        ss << "[" << ts << "] [INFO] [GRAPHQL] [" << endpoint << "]";
+        if (!ctx.requestId.empty()) ss << " [" << ctx.requestId << "]";
+        if (!ctx.clientIp.empty()) ss << " [IP: " << ctx.clientIp << "]";
+        ss << "\n--- REQUEST ---\n" << prettyRequest << "\n--- RESPONSE ---\n" << prettyResponse;
 
-        BOOST_LOG_SEV(logger, LogType::INFO)
-        << logging::add_value("Origin", endpoint) << entry;
+        WriteLogToFile(subDir, "system", ss.str());
     }
 
     std::string Logger::GetStackTrace()
     {
         std::stringstream ss;
         ss << boost::stacktrace::stacktrace();
-
         return ss.str();
     }
 
@@ -467,64 +524,7 @@ namespace omnisphere::utils
         }
         else if (jv.is_string())
         {
-            std::string s = std::string(jv.get_string());
-
-            if (s.find('{') != std::string::npos)
-            {
-                // Potential GraphQL query - expand and indent
-                std::string expanded;
-                int gqlDepth = 0;
-                bool lastWasSpace = false;
-                std::string baseGqlIndent = nextIndentStr + "  ";
-
-                expanded += "\"\n" + baseGqlIndent;
-
-                for (size_t i = 0; i < s.size(); ++i)
-                {
-                    char c = s[i];
-
-                    if (c == '{')
-                    {
-                        gqlDepth++;
-                        expanded += " {\n" + baseGqlIndent + std::string(gqlDepth * 2, ' ');
-                        lastWasSpace = true;
-                    }
-                    else if (c == '}')
-                    {
-                        if (gqlDepth > 0) gqlDepth--;
-                        expanded += "\n" + baseGqlIndent + std::string(gqlDepth * 2, ' ') + "}";
-                        lastWasSpace = false;
-                    }
-                    else if (std::isspace(c))
-                    {
-                        if (!lastWasSpace && !expanded.empty() && expanded.back() != '\n' && expanded.back() != '{')
-                        {
-                            // Convert spaces between fields into new lines if inside braces
-
-                            if (gqlDepth > 0)
-                            {
-                                expanded += "\n" + baseGqlIndent + std::string(gqlDepth * 2, ' ');
-                            }
-                            else
-                            {
-                                expanded += " ";
-                            }
-                        }
-                        lastWasSpace = true;
-                    }
-                    else
-                    {
-                        expanded += c;
-                        lastWasSpace = false;
-                    }
-                }
-                expanded += "\n" + nextIndentStr + "\"";
-                result += expanded;
-            }
-            else
-            {
-                result += "\"" + s + "\"";
-            }
+            result += "\"" + std::string(jv.get_string()) + "\"";
         }
         else if (jv.is_int64())
         {

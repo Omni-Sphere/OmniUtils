@@ -4,6 +4,7 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
+#include <chrono>
 
 namespace omnisphere::net
 {
@@ -134,23 +135,36 @@ namespace omnisphere::net
 
     Response Router::Dispatch(Request& req) const
     {
-        // 0. Registrar de forma automática la petición HTTP recibida en Logger
+        auto startTime = std::chrono::steady_clock::now();
+
+        // 0. Establecer ámbito de contexto por hilo (RequestId, ClientIP, User, Client)
+        omnisphere::utils::RequestContextScope scope(req.RequestId(), req.ClientIP(), req.UserCode(), req.ClientId());
+
+        // Registrar de forma automática la petición HTTP recibida en Logger (archivo net_<hora>.log)
         omnisphere::utils::Logger::LogHttpRequest(req);
 
+        auto finalizeResponse = [&](Response resp) -> Response
+        {
+            auto endTime = std::chrono::steady_clock::now();
+            long long durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+            omnisphere::utils::Logger::LogHttpResponse(req, resp, durationMs);
+            return resp;
+        };
+
         // 1. Extracción e inspección automática de JWT Token gestionada nativamente por OmniUtils
-        std::string authHeader = req.Header("Authorization");
+        // Estándar Dual Formal:
+        //   Canal A (M2M / Mobile / SDK / CLI): Cabecera estándar RFC 6750 ("Authorization: Bearer <token>")
+        //   Canal B (Web / Navegador): Cookie de sesión segura HttpOnly ("Cookie: authToken=<token>")
         std::string token;
+        const std::string authHeader = req.Header("Authorization");
         if (authHeader.rfind("Bearer ", 0) == 0 || authHeader.rfind("bearer ", 0) == 0)
         {
             token = authHeader.substr(7);
         }
         else
         {
-            token = authHeader;
-        }
-        if (token.empty())
-        {
-            token = req.QueryParam("token");
+            // Extraer de cookie de sesión Web si no se provee cabecera RFC 6750
+            token = req.Cookie("authToken");
         }
 
         if (!token.empty())
@@ -159,6 +173,8 @@ namespace omnisphere::net
             {
                 auto claims = omnisphere::utils::JWT::ValidateToken(token);
                 req.SetUserClaims(claims);
+                // Actualizar contexto con la identidad autenticada
+                omnisphere::utils::Logger::SetCurrentContext({req.RequestId(), req.ClientIP(), req.UserCode(), req.ClientId()});
             }
             catch (const std::exception& e)
             {
@@ -176,7 +192,7 @@ namespace omnisphere::net
             Response mwResponse;
             if (!mw(req, mwResponse))
             {
-                return mwResponse;
+                return finalizeResponse(mwResponse);
             }
         }
 
@@ -197,7 +213,7 @@ namespace omnisphere::net
                             Response authError;
                             if (!m_authChecker(req, route.requiredRoles, authError))
                             {
-                                return authError;
+                                return finalizeResponse(authError);
                             }
                         }
                         else
@@ -205,29 +221,13 @@ namespace omnisphere::net
                             // Verificación nativa automática de JWT en OmniUtils
                             if (!req.IsAuthenticated())
                             {
-                                return Response(401, "application/json", R"({"error":"Unauthorized: Missing or invalid JWT Bearer token."})");
+                                return finalizeResponse(Response(401, "application/json", R"({"error":"Unauthorized: Missing or invalid JWT Bearer token."})"));
                             }
-
-                            /* Future RBAC Implementation:
-                            if (!route.requiredRoles.empty())
-                            {
-                                std::string userRole = req.UserRole();
-                                bool hasRole = false;
-                                for (const auto& r : route.requiredRoles)
-                                {
-                                    if (r == userRole) { hasRole = true; break; }
-                                }
-                                if (!hasRole)
-                                {
-                                    return Response(403, "application/json", R"({"error":"Forbidden: Insufficient role privileges."})");
-                                }
-                            }
-                            */
                         }
                     }
 
                     // 4. Ejecutar el handler de la ruta
-                    return route.handler(req);
+                    return finalizeResponse(route.handler(req));
                 }
             }
         }
@@ -235,10 +235,10 @@ namespace omnisphere::net
         if (pathMatched)
         {
             omnisphere::utils::Logger::LogWarning("Router", req.TraceContext() + " HTTP 405 Method Not Allowed: " + req.Method() + " " + req.Target());
-            return Response::MethodNotAllowed(R"({"error":"405 Method Not Allowed"})");
+            return finalizeResponse(Response::MethodNotAllowed(R"({"error":"405 Method Not Allowed"})"));
         }
 
         omnisphere::utils::Logger::LogWarning("Router", req.TraceContext() + " HTTP 404 Not Found: " + req.Method() + " " + req.Target());
-        return Response::NotFound(R"({"error":"404 Not Found"})");
+        return finalizeResponse(Response::NotFound(R"({"error":"404 Not Found"})"));
     }
 } // namespace omnisphere::net
