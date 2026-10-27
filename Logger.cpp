@@ -395,7 +395,10 @@ namespace omnisphere::utils
 
         // Console Output: Only show in console if it is a SLOW query (>= 100ms) or has an SQL Error
         bool isSlow = (durationMs >= SLOW_SQL_THRESHOLD_MS);
-        bool isError = (message.find("ERROR") != std::string::npos || message.find("Error") != std::string::npos);
+        bool isError = (message.find("[ERROR]") != std::string::npos ||
+                        message.find("ERROR:") != std::string::npos ||
+                        message.find("Failed: ") != std::string::npos ||
+                        message.rfind("Error:", 0) == 0);
 
         if (isSlow || isError)
         {
