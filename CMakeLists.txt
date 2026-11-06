@@ -137,19 +137,23 @@ if(WIN32)
 
 endif()
 
-file(GLOB_RECURSE PUBLIC_HEADERS
-    "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
+# Listado explícito de carpetas públicas para evitar incluir build/ recursivamente
+set(HEADER_DIRS
+    .
+    Http
 )
 
-foreach(HDR ${PUBLIC_HEADERS})
-    file(RELATIVE_PATH REL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" "${HDR}")
-    set(DEST_PATH "${INCLUDE_DIR}/${REL_PATH}")
-
-    get_filename_component(DEST_DIR "${DEST_PATH}" DIRECTORY)
-    add_custom_command(TARGET OmniUtils POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${DEST_DIR}"
-        COMMAND ${CMAKE_COMMAND} -E copy "${HDR}" "${DEST_PATH}"
-    )
+foreach(DIR ${HEADER_DIRS})
+    file(GLOB HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/${DIR}/*.hpp")
+    foreach(HDR ${HEADERS})
+        file(RELATIVE_PATH REL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" "${HDR}")
+        set(DEST_PATH "${INCLUDE_DIR}/${REL_PATH}")
+        get_filename_component(DEST_DIR "${DEST_PATH}" DIRECTORY)
+        add_custom_command(TARGET OmniUtils POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${DEST_DIR}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${HDR}" "${DEST_PATH}"
+        )
+    endforeach()
 endforeach()
 
 # --- Installation & Export ---
